@@ -75,6 +75,7 @@
         opacity: 0;
         transform: translateY(-10px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -296,7 +297,8 @@
     flex-grow: 1;
     flex-shrink: 1;
     min-width: 0;
-    max-width: calc(100% - 120px); /* 为右侧按钮预留空间 */
+    max-width: calc(100% - 120px);
+    /* 为右侧按钮预留空间 */
     font-size: 14px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -339,7 +341,7 @@
 }
 
 .dida-task-completed {
-    width: 100%; 
+    width: 100%;
     opacity: 0.6;
 }
 
@@ -348,7 +350,7 @@
     cursor: pointer;
     flex-shrink: 0;
     box-shadow: none !important;
-    padding:0;
+    padding: 0;
 }
 
 
@@ -551,7 +553,8 @@
     flex-grow: 1;
     flex-shrink: 1;
     min-width: 0;
-    max-width: calc(100%); /* 为右侧按钮预留空间 */
+    max-width: calc(100%);
+    /* 为右侧按钮预留空间 */
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -590,6 +593,7 @@
         transform: translateY(-10px);
         max-height: 0;
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -679,7 +683,7 @@
     background: transparent !important;
     color: var(--color-red) !important;
     max-width: 160px;
-    display:inline;
+    display: inline;
 }
 
 .dida-task-jump-btn.mod-warning:hover {
@@ -823,6 +827,7 @@
         opacity: 0;
         transform: scale(0.95);
     }
+
     to {
         opacity: 1;
         transform: scale(1);
@@ -1042,11 +1047,12 @@
     display: flex;
     justify-content: flex-end;
     align-items: center;
-    position: relative; /* 作为提醒面板的定位父元素 */
+    position: relative;
+    /* 作为提醒面板的定位父元素 */
 }
 
 /* 日历标题文本样式 */
-.dida-calendar-title > span {
+.dida-calendar-title>span {
     flex-grow: 1;
     text-align: right;
     font-size: 15px;
@@ -1166,7 +1172,7 @@
     color: var(--text-on-accent);
     font-weight: bold;
     height: 16px;
-    width:28px;
+    width: 28px;
     border: 1px solid var(--interactive-accent);
     border-radius: 40%;
 }
@@ -1504,7 +1510,7 @@
 .dida-tab-btn.active {
     color: #0066cc;
     background-color: transparent;
-    height:25px;
+    height: 25px;
     border: none;
     border-top: solid;
     border-top-right-radius: 6px;
@@ -1682,6 +1688,7 @@
     transition: background-color 0.2s ease;
     flex-shrink: 0;
 }
+
 /* 添加按钮样式 */
 .dida-add-task-btn {
     margin-top: 10px;
@@ -1724,8 +1731,8 @@
 }
 
 /* 项目选择模态框标签样式 */
-.dida-project-select + label,
-label + .dida-project-select {
+.dida-project-select+label,
+label+.dida-project-select {
     margin-top: 10px;
 }
 
@@ -1835,7 +1842,7 @@ label + .dida-project-select {
     border-radius: 4px;
     color: var(--text-muted);
     transition: all 0.2s ease;
-    box-shadow:none !important;
+    box-shadow: none !important;
 }
 
 .dida-timeline-custom-window-content {
@@ -1918,21 +1925,21 @@ label + .dida-project-select {
 }
 
 .dida-timeline-nav-btn {
-    background: transparent!important;
+    background: transparent !important;
     padding: 4px;
     cursor: pointer;
     transition: all 0.2s ease;
-    box-shadow:none !important;
+    box-shadow: none !important;
     font-size: 16px;
 }
 
 
 .dida-timeline-expand-btn {
-    background: transparent!important;
+    background: transparent !important;
     padding: 4px;
     cursor: pointer;
     font-size: 12px;
-    box-shadow:none !important;
+    box-shadow: none !important;
 }
 
 
@@ -2001,7 +2008,7 @@ label + .dida-project-select {
     color: var(--text-normal);
 }
 
-.dida-timeline-date-item.dida-timeline-today{
+.dida-timeline-date-item.dida-timeline-today {
     background: rgba(var(--interactive-accent-rgb), 0.2);
 }
 
@@ -2143,7 +2150,7 @@ label + .dida-project-select {
 .dida-time-block-all-day .dida-task-title {
     flex: 1;
     text-align: left;
-    max-width:calc(100% - 100px);
+    max-width: calc(100% - 100px);
 }
 
 .dida-time-block-all-day .dida-task-delete {
@@ -2867,6 +2874,7 @@ label + .dida-project-select {
         opacity: 0;
         transform: scale(0.9) translateY(-5px);
     }
+
     100% {
         opacity: 1;
         transform: scale(1) translateY(0);
@@ -2879,7 +2887,7 @@ label + .dida-project-select {
         min-width: 180px;
         max-width: 250px;
     }
-    
+
     .task-action-menu-option {
         padding: 12px 16px;
         font-size: 14px;
@@ -3010,6 +3018,7 @@ label + .dida-project-select {
     width: 16px;
     height: 16px;
 }
+
 .dida-time-block-task-content input[type="checkbox"]:after {
     width: 15px;
     height: 15px;
@@ -3088,14 +3097,24 @@ label + .dida-project-select {
     z-index: 10;
     color: purple;
     /* 具体背景色由不同列的选择器控制，移除左右外边距避免横向滚动 */
+    transition: z-index 0s, height 0.2s ease, box-shadow 0.2s ease;
 }
 
 /* 时间块视图：任务块悬停时层级更高，避免重叠遮挡 */
 .dida-time-block-task:hover {
-    z-index: 20;
+    z-index: 50;
+    height: auto !important;
+    min-height: fit-content;
+    overflow: visible;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
-.theme-dark .dida-time-block-task{
+.dida-time-block-task:hover .dida-time-block-task-title {
+    white-space: normal;
+    overflow: visible;
+}
+
+.theme-dark .dida-time-block-task {
     box-shadow: inset 0 0 0 1000px rgb(0 0 0 / 60%);
 }
 
@@ -3127,10 +3146,11 @@ label + .dida-project-select {
 .dida-time-block-task-title {
     font-size: 10px;
     pointer-events: auto;
-    white-space: normal;
-    overflow-wrap: break-word;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     padding-top: 3px;
-    color:rgb(76,79,105);
+    color: rgb(76, 79, 105);
 }
 
 /* 时间块任务内的删除按钮：右上角悬浮显示 */
@@ -3151,11 +3171,12 @@ label + .dida-project-select {
     opacity: 1;
     pointer-events: auto;
 }
-.theme-dark .dida-time-block-task-title{
+
+.theme-dark .dida-time-block-task-title {
     color: rgb(170 170 170);
 }
 
-.theme-dark .dida-time-block-task-time{
+.theme-dark .dida-time-block-task-time {
     color: #bf76bf;
 }
 
