@@ -1,0 +1,10 @@
+{
+  "id": "dida-sync",
+  "name": "Dida Sync",
+  "version": "0.0.1",
+  "minAppVersion": "0.15.0",
+  "description": "与滴答清单双向同步任务的插件",
+  "author": "CYZice",
+  "authorUrl": "https://github.com/CYZice",
+  "isDesktopOnly": true
+}
