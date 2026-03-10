@@ -23,3 +23,6 @@ extract.js
 fix_*.js
 tmp_*.js
 main_formatted.js
+
+
+*.md

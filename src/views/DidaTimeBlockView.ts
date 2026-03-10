@@ -1,6 +1,6 @@
 import { WorkspaceLeaf } from 'obsidian';
-import { TaskView } from './TaskView';
 import DidaSyncPlugin from '../main';
+import { TaskView } from './TaskView';
 
 export const TIME_BLOCK_VIEW_TYPE = "dida-time-block-view";
 
@@ -19,6 +19,6 @@ export class DidaTimeBlockView extends TaskView {
     }
 
     getIcon() {
-        return "calendar-clock";
+        return "calendar-check";
     }
 }

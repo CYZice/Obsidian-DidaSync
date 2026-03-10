@@ -208,6 +208,33 @@ export class RepeatSettingsModal extends Modal {
             this.monthDay = parseInt(dayInput.value) || 1;
         };
         yeardayContainer.createEl("span", { text: "日" });
+
+        const orContainer = settings.createDiv("dida-or-container");
+        orContainer.createEl("span", { text: "或者选择第" });
+        let weekNumInput = orContainer.createEl("input", {
+            type: "number",
+            value: this.yearWeekNumber.toString(),
+            cls: "dida-week-number-input"
+        });
+        weekNumInput.min = "1";
+        weekNumInput.max = "5";
+        weekNumInput.onchange = () => {
+            this.yearWeekNumber = parseInt(weekNumInput.value) || 1;
+        };
+        orContainer.createEl("span", { text: "个" });
+        let weekDaySelect = orContainer.createEl("select", {
+            cls: "dida-year-weekday-select"
+        });
+        ["日", "一", "二", "三", "四", "五", "六"].forEach((t, e) => {
+            let opt = weekDaySelect.createEl("option", {
+                value: e.toString(),
+                text: "星期" + t
+            });
+            if (e === this.yearWeekDay) opt.selected = true;
+        });
+        weekDaySelect.onchange = () => {
+            this.yearWeekDay = parseInt(weekDaySelect.value);
+        };
     }
 
     renderCustomSettings(container: HTMLElement) {
@@ -238,7 +265,11 @@ export class RepeatSettingsModal extends Modal {
                 rrule += `FREQ=MONTHLY;INTERVAL=${this.interval};BYMONTHDAY=` + this.monthDay;
                 break;
             case "yearly":
-                rrule += `FREQ=YEARLY;INTERVAL=${this.interval};BYMONTH=${this.month};BYMONTHDAY=` + this.monthDay;
+                if (this.yearWeekNumber > 0 && this.yearWeekDay >= 0) {
+                    rrule += `FREQ=YEARLY;INTERVAL=${this.interval};BYMONTH=${this.month};BYDAY=` + this.yearWeekNumber + ["SU", "MO", "TU", "WE", "TH", "FR", "SA"][this.yearWeekDay];
+                } else {
+                    rrule += `FREQ=YEARLY;INTERVAL=${this.interval};BYMONTH=${this.month};BYMONTHDAY=` + this.monthDay;
+                }
                 break;
         }
         return rrule;

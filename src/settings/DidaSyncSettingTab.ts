@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, Notice } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import DidaSyncPlugin from "../main";
 import { debounce } from "../utils";
 
@@ -21,7 +21,7 @@ export class DidaSyncSettingTab extends PluginSettingTab {
         const step1Div = oauthContainer.createDiv();
         step1Div.style.cssText = "margin: 10px 0;";
         step1Div.createEl("p", { text: "第1步：请复制下面的链接到浏览器→进入到滴答清单开发者后台（需要登入你的滴答清单账号）→Manage Apps创建应用→自动获取Client ID和Client Secret→填入到下面的设置窗口" });
-        
+
         const linkDiv = step1Div.createDiv();
         linkDiv.style.cssText = "display: flex; align-items: center; gap: 10px; background: transparent; padding: 8px; border-radius: 5px;";
         linkDiv.createEl("code", { text: "https://developer.dida365.com/manage" });
@@ -33,12 +33,12 @@ export class DidaSyncSettingTab extends PluginSettingTab {
         const step2Div = oauthContainer.createDiv();
         step2Div.style.cssText = "margin: 10px 0;";
         step2Div.createEl("p", { text: "第2步：请将下面的URI复制粘贴到滴答清单开发者后台的OAuth redirect URL→Save保存→点击OAuth认证按钮" });
-        
+
         const redirectDiv = step2Div.createDiv();
         redirectDiv.style.cssText = "background: transparent; padding: 10px; border-radius: 5px; margin: 10px 0;";
         redirectDiv.createEl("strong", { text: "重定向URI配置：" });
         redirectDiv.createEl("br");
-        
+
         const uriDiv = redirectDiv.createDiv();
         uriDiv.style.cssText = "display: flex; align-items: center; gap: 10px; margin: 5px 0;";
         uriDiv.createEl("code", { text: `http://localhost:${this.plugin.settings.serverPort}/callback` });
@@ -102,11 +102,7 @@ export class DidaSyncSettingTab extends PluginSettingTab {
         }));
 
         new Setting(containerEl).setName("手动同步").setDesc("立即执行双向同步").addButton(t => t.setButtonText("开始同步").onClick(async () => {
-            if (this.plugin.settings.accessToken) {
-                await this.plugin.syncManager.syncFromDidaList();
-            } else {
-                new Notice("请先进行OAuth认证");
-            }
+            await this.plugin.manualSync();
         }));
 
         containerEl.createEl("h3", { text: "主任务视图设置" });
@@ -183,6 +179,17 @@ export class DidaSyncSettingTab extends PluginSettingTab {
         this.containerEl.querySelectorAll("code").forEach(e => {
             if (e.textContent && e.textContent.includes("/callback")) {
                 e.textContent = `http://localhost:${port}/callback`;
+            }
+        });
+        this.containerEl.querySelectorAll("button").forEach(btn => {
+            if (btn.textContent === "复制") {
+                const parent = btn.closest("div");
+                if (parent && parent.querySelector("code")?.textContent?.includes("/callback")) {
+                    btn.onclick = () => {
+                        navigator.clipboard.writeText(`http://localhost:${port}/callback`);
+                        new Notice("重定向URI已复制到剪贴板");
+                    };
+                }
             }
         });
     }

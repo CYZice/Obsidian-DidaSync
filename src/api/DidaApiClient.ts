@@ -1,11 +1,11 @@
-import { Notice } from "obsidian";
+import { shell } from "electron";
 import * as http from "http";
 import * as https from "https";
+import { Notice } from "obsidian";
 import * as querystring from "querystring";
-import { shell } from "electron";
-import { OAUTH_CONFIG, DidaSyncSettings } from "../types";
 import DidaSyncPlugin from "../main";
 import { AuthUrlModal } from "../modals/AuthUrlModal";
+import { DidaSyncSettings, OAUTH_CONFIG } from "../types";
 
 export class DidaApiClient {
     plugin: DidaSyncPlugin;
@@ -73,7 +73,7 @@ export class DidaApiClient {
                     if ("/callback" === url.pathname) {
                         var code = url.searchParams.get("code");
                         var error = url.searchParams.get("error");
-                        
+
                         if (error) {
                             res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
                             res.end(`
@@ -121,15 +121,15 @@ export class DidaApiClient {
                     // Ignore errors during request handling
                 }
             });
-            
+
             this.oauthServer.on("error", (err) => {
                 reject(err);
             });
-            
+
             this.oauthServer.listen(this.settings.serverPort, "localhost", () => {
                 resolve();
             });
-            
+
             this.oauthTimeout = setTimeout(() => {
                 this.handleOAuthError("OAuth认证超时");
             }, 600000); // 10 minutes timeout
@@ -180,7 +180,7 @@ export class DidaApiClient {
                 code: code,
                 redirect_uri: this.getRedirectUri()
             });
-            
+
             var options = {
                 hostname: "dida365.com",
                 port: 443,
@@ -191,7 +191,7 @@ export class DidaApiClient {
                     "Content-Length": Buffer.byteLength(data)
                 }
             };
-            
+
             var req = https.request(options, (res) => {
                 let body = "";
                 res.on("data", (chunk) => {
@@ -210,11 +210,11 @@ export class DidaApiClient {
                     }
                 });
             });
-            
+
             req.on("error", (e) => {
                 reject(new Error("Token请求网络错误: " + e.message));
             });
-            
+
             req.write(data);
             req.end();
         });
@@ -222,7 +222,7 @@ export class DidaApiClient {
 
     async refreshAccessToken(): Promise<any> {
         if (!this.settings.refreshToken) throw new Error("没有refresh token");
-        
+
         return new Promise((resolve, reject) => {
             var data = querystring.stringify({
                 grant_type: "refresh_token",
@@ -230,7 +230,7 @@ export class DidaApiClient {
                 client_secret: this.settings.clientSecret,
                 refresh_token: this.settings.refreshToken
             });
-            
+
             var options = {
                 hostname: "dida365.com",
                 port: 443,
@@ -241,7 +241,7 @@ export class DidaApiClient {
                     "Content-Length": Buffer.byteLength(data)
                 }
             };
-            
+
             var req = https.request(options, (res) => {
                 let body = "";
                 res.on("data", (chunk) => {
@@ -265,11 +265,11 @@ export class DidaApiClient {
                     }
                 });
             });
-            
+
             req.on("error", (e) => {
                 reject(new Error("Token刷新网络错误: " + e.message));
             });
-            
+
             req.write(data);
             req.end();
         });
@@ -277,15 +277,15 @@ export class DidaApiClient {
 
     async makeAuthenticatedRequest(urlStr: string, options: any = {}): Promise<any> {
         if (!this.settings.accessToken) throw new Error("未认证，请先进行OAuth认证");
-        
+
         return new Promise((resolve, reject) => {
             var url = new URL(urlStr);
             var isHttps = url.protocol === "https:";
             let client = isHttps ? https : http;
-            
+
             let body = options.body || "";
             let method = options.method || "GET";
-            
+
             var reqOptions: any = {
                 hostname: url.hostname,
                 port: url.port || (isHttps ? 443 : 80),
@@ -298,11 +298,11 @@ export class DidaApiClient {
                     ...options.headers
                 }
             };
-            
+
             if (body && method !== "GET") {
                 reqOptions.headers["Content-Length"] = Buffer.byteLength(body);
             }
-            
+
             var req = client.request(reqOptions, (res) => {
                 let resBody = "";
                 res.on("data", (chunk) => {
@@ -313,7 +313,7 @@ export class DidaApiClient {
                         try {
                             await this.refreshAccessToken();
                             reqOptions.headers.Authorization = "Bearer " + this.settings.accessToken;
-                            
+
                             // Retry request
                             var retryReq = client.request(reqOptions, (retryRes) => {
                                 let retryBody = "";
@@ -329,11 +329,11 @@ export class DidaApiClient {
                                     });
                                 });
                             });
-                            
+
                             retryReq.on("error", reject);
                             if (body && method !== "GET") retryReq.write(body);
                             retryReq.end();
-                            
+
                         } catch (e) {
                             this.settings.accessToken = "";
                             this.settings.refreshToken = "";
@@ -351,11 +351,11 @@ export class DidaApiClient {
                     }
                 });
             });
-            
+
             req.on("error", (e) => {
                 reject(new Error("网络请求错误: " + e.message));
             });
-            
+
             if (body && method !== "GET") req.write(body);
             req.end();
         });
@@ -380,7 +380,7 @@ export class DidaApiClient {
                     if (data && data.tasks && Array.isArray(data.tasks)) return data.tasks;
                     if (data && data.data && Array.isArray(data.data)) return data.data;
                 }
-            } catch (e) {}
+            } catch (e) { }
         }
         return [];
     }
@@ -391,6 +391,15 @@ export class DidaApiClient {
     }
 
     async createTask(taskData: any): Promise<any> {
+        if (taskData && taskData.dueDate && typeof taskData.dueDate === "string" && taskData.dueDate.endsWith("Z")) {
+            taskData.dueDate = taskData.dueDate.replace("Z", "+0000");
+        }
+        if (taskData && taskData.startDate && typeof taskData.startDate === "string" && taskData.startDate.endsWith("Z")) {
+            taskData.startDate = taskData.startDate.replace("Z", "+0000");
+        }
+        if (taskData && taskData.isAllDay) {
+            taskData.timeZone = taskData.timeZone || "Asia/Shanghai";
+        }
         const res = await this.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task", {
             method: "POST",
             body: JSON.stringify(taskData)
@@ -400,6 +409,29 @@ export class DidaApiClient {
     }
 
     async updateTask(taskId: string, taskData: any): Promise<any> {
+        if (taskData && taskData.dueDate && typeof taskData.dueDate === "string" && taskData.dueDate.endsWith("Z")) {
+            taskData.dueDate = taskData.dueDate.replace("Z", "+0000");
+        }
+        if (taskData && taskData.startDate && typeof taskData.startDate === "string" && taskData.startDate.endsWith("Z")) {
+            taskData.startDate = taskData.startDate.replace("Z", "+0000");
+        }
+        if (taskData && taskData.isAllDay) {
+            taskData.timeZone = taskData.timeZone || "Asia/Shanghai";
+        }
+        if (taskData && taskData.status === 2 && !taskData.completedTime) {
+            const now = new Date();
+            const y = now.getFullYear();
+            const m = String(now.getMonth() + 1).padStart(2, "0");
+            const d = String(now.getDate()).padStart(2, "0");
+            const h = String(now.getHours()).padStart(2, "0");
+            const min = String(now.getMinutes()).padStart(2, "0");
+            const s = String(now.getSeconds()).padStart(2, "0");
+            const offset = now.getTimezoneOffset();
+            const oh = Math.abs(Math.floor(offset / 60));
+            const om = Math.abs(offset % 60);
+            const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
+            taskData.completedTime = `${y}-${m}-${d}T${h}:${min}:${s}${tz}`;
+        }
         const res = await this.makeAuthenticatedRequest(`https://api.dida365.com/open/v1/task/${taskId}`, {
             method: "POST",
             body: JSON.stringify(taskData)

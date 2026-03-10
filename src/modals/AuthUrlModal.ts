@@ -1,5 +1,4 @@
 import { App, Modal, Setting } from "obsidian";
-import { shell } from "electron";
 
 export class AuthUrlModal extends Modal {
     url: string;
@@ -14,23 +13,27 @@ export class AuthUrlModal extends Modal {
     onOpen() {
         const { contentEl } = this;
         contentEl.empty();
-        contentEl.createEl("h2", { text: "认证链接" });
-        contentEl.createEl("p", { text: "无法自动打开浏览器，请复制以下链接到浏览器中打开：" });
-        
-        const textArea = contentEl.createEl("textarea", { text: this.url });
-        textArea.style.width = "100%";
-        textArea.style.height = "100px";
-        
+        contentEl.createEl("h2", { text: "OAuth认证" });
+        contentEl.createEl("p", { text: "无法自动打开浏览器，请手动复制以下链接到浏览器中完成认证：" });
+        const box = contentEl.createDiv();
+        box.style.cssText = "background: #f5f5f5; padding: 10px; border-radius: 5px; margin: 10px 0; word-break: break-all;";
+        box.createEl("code", { text: this.url });
         new Setting(contentEl).addButton(btn => {
-            btn.setButtonText("复制链接")
-                .onClick(() => {
-                    textArea.select();
-                    document.execCommand("copy");
+            btn.setButtonText("复制链接").onClick(async () => {
+                try {
+                    await navigator.clipboard.writeText(this.url);
                     btn.setButtonText("已复制");
-                });
+                    setTimeout(() => btn.setButtonText("复制链接"), 2000);
+                } catch (e) {
+                    btn.setButtonText("复制失败");
+                }
+            });
         });
-
-        contentEl.createEl("p", { text: "认证完成后，请确保浏览器重定向到了: " + this.redirectUri });
+        contentEl.createEl("p", { text: "认证完成后，请确保浏览器重定向到了以下地址：" });
+        contentEl.createEl("code", { text: this.redirectUri });
+        new Setting(contentEl).addButton(btn => {
+            btn.setButtonText("关闭").onClick(() => this.close());
+        });
     }
 
     onClose() {

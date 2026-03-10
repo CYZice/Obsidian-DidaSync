@@ -79,13 +79,13 @@ export class RepeatTaskManager {
                     var newSub: DidaTask = {
                         ...sub,
                         id: this.generateTaskId(),
-                        didaId: undefined,
+                        didaId: null as any,
                         status: 0,
-                        completedTime: undefined,
-                        parentId: undefined, // Will be set after parent is created in Dida
+                        completedTime: null as any,
+                        parentId: null,
                         createdAt: (new Date).toISOString(),
                         updatedAt: (new Date).toISOString(),
-                        etag: undefined
+                        etag: null as any
                     };
                     this.plugin.settings.tasks.push(newSub);
                 }
@@ -94,11 +94,12 @@ export class RepeatTaskManager {
                 if (this.plugin.settings.accessToken) {
                     setTimeout(async () => {
                         try {
-                            const createdParent = await this.plugin.createTaskInDidaList(newTask);
+                            await this.plugin.createTaskInDidaList(newTask);
                             setTimeout(async () => {
-                                if (createdParent && createdParent.id) {
-                                    for (let subTask of this.plugin.settings.tasks.filter(t => subtasks.some(st => st.title === t.title && !t.parentId && t.id !== newTask.id))) {
-                                        subTask.parentId = createdParent.id;
+                                const created = this.plugin.settings.tasks.find(t => t.id === newTask.id);
+                                if (created && created.didaId) {
+                                    for (let subTask of this.plugin.settings.tasks.filter(t => subtasks.some(st => st.title === t.title && t.parentId == null && t.id !== newTask.id))) {
+                                        subTask.parentId = created.didaId;
                                         await this.plugin.createTaskInDidaList(subTask);
                                     }
                                     await this.plugin.saveSettings();
