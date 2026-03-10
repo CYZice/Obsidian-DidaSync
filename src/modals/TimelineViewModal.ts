@@ -403,7 +403,7 @@ export class TimelineViewModal {
             const cb = elementContainer.createEl("input", { type: "checkbox" });
             cb.checked = task.status === 2;
 
-            const titleSpan = elementContainer.createEl("span", {
+            const titleSpan = item.createEl("span", {
                 cls: task.status === 2 ? "dida-timeline-task-completed dida-task-title-clickable" : "dida-timeline-task-title dida-task-title-clickable"
             });
             this.renderTimelineTaskTitleContent(titleSpan, task.title || "无标题任务");
@@ -542,7 +542,7 @@ export class TimelineViewModal {
 
             const cb = elementContainer.createEl("input", { type: "checkbox" });
             cb.checked = task.status === 2;
-            const titleSpan = elementContainer.createEl("span", {
+            const titleSpan = item.createEl("span", {
                 cls: task.status === 2 ? "dida-timeline-task-completed dida-task-title-clickable" : "dida-timeline-task-title dida-task-title-clickable"
             });
             this.renderTimelineTaskTitleContent(titleSpan, task.title || "无标题任务");
