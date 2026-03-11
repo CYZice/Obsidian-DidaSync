@@ -778,11 +778,15 @@ export default class DidaSyncPlugin extends Plugin {
         } catch (e) { }
     }
 
-    showTaskSuggestions(editor: Editor, cursor: EditorPosition) {
+    showTaskSuggestions(editor: Editor, cursor: EditorPosition, onSelect?: (task: DidaTask) => void) {
         try {
             let activeView: any;
             const popup = new TaskSuggestionPopup(this.app, this, editor, cursor, (task) => {
-                this.insertTaskLink(editor, cursor, task);
+                if (onSelect) {
+                    onSelect(task);
+                } else {
+                    this.insertTaskLink(editor, cursor, task);
+                }
             });
             let editorDom: HTMLElement | null = null;
             if ((editor as any).cm && (editor as any).cm.dom) editorDom = (editor as any).cm.dom;
@@ -898,6 +902,32 @@ export default class DidaSyncPlugin extends Plugin {
         editor.setCursor({ line: cursor.line, ch: before.length + linkText.length });
     }
 
+    linkTaskToLine(editor: Editor, cursor: EditorPosition, task: DidaTask) {
+        const line = editor.getLine(cursor.line);
+        const linkRegex = /\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=[^)]+\)/;
+        const newLink = `[🔗Dida](obsidian://dida-task?didaId=${task.didaId})`;
+
+        if (linkRegex.test(line)) {
+            const newLine = line.replace(linkRegex, newLink);
+            editor.setLine(cursor.line, newLine);
+        } else {
+            const match = line.match(/^(\s*)-\s\[[ x]\]\s*(.*)$/);
+            if (match) {
+                const content = match[2].trim();
+                if (!content) {
+                    const newLine = `${match[1]}- [ ] ${task.title} ${newLink}`;
+                    editor.setLine(cursor.line, newLine);
+                } else {
+                    const newLine = line.trimEnd() + " " + newLink;
+                    editor.setLine(cursor.line, newLine);
+                }
+            } else {
+                const newLine = line.trimEnd() + " " + newLink;
+                editor.setLine(cursor.line, newLine);
+            }
+        }
+    }
+
     showTaskActionMenu(editor: Editor, cursor: EditorPosition) {
         try {
             if (!this.settings.enableNativeTaskSync) return;
@@ -922,6 +952,10 @@ export default class DidaSyncPlugin extends Plugin {
                 await this.syncTaskToDidaList(editor, cursor, line);
             } else if (action === "date") {
                 this.addDateToTask(editor, cursor, line, data.date);
+            } else if (action === "search") {
+                this.showTaskSuggestions(editor, cursor, (task) => {
+                    this.linkTaskToLine(editor, cursor, task);
+                });
             }
             setTimeout(() => {
                 this.isTaskActionInProgress = false;
