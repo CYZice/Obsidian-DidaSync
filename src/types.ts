@@ -79,6 +79,9 @@ export interface DidaSyncSettings {
 
     enableNativeTaskSync: boolean;
 
+    // Daily Sync Settings
+    dailySyncTargetBlockHeader: string;
+
     // UI Settings
     projectCollapsedStates: { [key: string]: boolean };
     projectOrder: string[]; // Array of project names/ids to store order
@@ -101,6 +104,7 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     autoCleanCompletedTasks: false,
     autoCleanInterval: 1,
     enableNativeTaskSync: true,
+    dailySyncTargetBlockHeader: "> [!todo] 核心目标",
     projectCollapsedStates: {},
     projectOrder: [],
     defaultViewMode: "task",

@@ -157,6 +157,22 @@ export class DidaSyncSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
         }));
 
+        containerEl.createEl("h3", { text: "日记同步设置" });
+        const dailyInfo = containerEl.createDiv();
+        dailyInfo.style.cssText = "padding: 10px; border-radius: 5px; margin: 10px 0; color: #0066cc;";
+        dailyInfo.innerHTML = '<strong>说明：</strong>日记同步功能允许你通过命令将今天的待办任务同步到日记中。';
+
+        new Setting(containerEl)
+            .setName('目标语法块标识')
+            .setDesc('在此设置要更新的日记待办事项块的标题(包括Markdown前缀)')
+            .addText(text => text
+                .setPlaceholder('输入目标区块标识')
+                .setValue(this.plugin.settings.dailySyncTargetBlockHeader)
+                .onChange(async (value) => {
+                    this.plugin.settings.dailySyncTargetBlockHeader = value;
+                    await this.plugin.saveSettings();
+                }));
+
         containerEl.createEl("h3", { text: "数据重置" });
         const resetInfo = containerEl.createDiv();
         resetInfo.style.cssText = "padding: 10px; border-radius: 5px; margin: 10px 0; color: #856404; border: 1px solid #ffeaa7;";

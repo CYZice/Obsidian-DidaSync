@@ -1,6 +1,7 @@
 import { Editor, EditorPosition, Modal, Notice, Plugin, TFile } from 'obsidian';
 import { DidaApiClient } from './api/DidaApiClient';
 import { RRuleParser } from './core/RRuleParser';
+import { DailyNoteManager } from './managers/DailyNoteManager';
 import { NativeTaskSyncManager } from './managers/NativeTaskSyncManager';
 import { RepeatTaskManager } from './managers/RepeatTaskManager';
 import { SyncManager } from './managers/SyncManager';
@@ -19,6 +20,7 @@ export default class DidaSyncPlugin extends Plugin {
     syncManager: SyncManager;
     nativeTaskSyncManager: NativeTaskSyncManager;
     repeatTaskManager: RepeatTaskManager;
+    dailyNoteManager: DailyNoteManager;
     currentTaskActionMenu: TaskActionMenu | null = null;
     isTaskActionInProgress: boolean = false;
     isPluginActivated: boolean = false;
@@ -45,6 +47,7 @@ export default class DidaSyncPlugin extends Plugin {
         this.syncManager = new SyncManager(this);
         this.nativeTaskSyncManager = new NativeTaskSyncManager(this);
         this.repeatTaskManager = new RepeatTaskManager(this);
+        this.dailyNoteManager = new DailyNoteManager(this.app, this);
 
         this.addSettingTab(new DidaSyncSettingTab(this.app, this));
 
@@ -87,6 +90,23 @@ export default class DidaSyncPlugin extends Plugin {
             name: '显示时间线日历视图',
             callback: () => {
                 this.showTimelineView();
+            }
+        });
+
+        this.addCommand({
+            id: 'sync-daily-tasks',
+            name: 'Sync Daily Tasks (同步今日任务到日记)',
+            callback: () => {
+                this.dailyNoteManager.syncTodayTasksToActiveNote();
+            }
+        });
+
+        this.addCommand({
+            id: 'insert-create-dida-task',
+            name: 'Insert/Create Dida Task (插入/创建滴答任务)',
+            editorCallback: (editor: Editor) => {
+                const cursor = editor.getCursor();
+                this.showTaskSuggestions(editor, cursor);
             }
         });
 
@@ -865,7 +885,13 @@ export default class DidaSyncPlugin extends Plugin {
 
     insertTaskLink(editor: Editor, cursor: EditorPosition, task: DidaTask) {
         const line = editor.getLine(cursor.line);
-        const before = line.substring(0, cursor.ch - 2);
+        let before = line.substring(0, cursor.ch);
+
+        // Check if triggered by @@
+        if (before.endsWith("@@")) {
+            before = before.substring(0, cursor.ch - 2);
+        }
+
         const after = line.substring(cursor.ch);
         const linkText = `[@@${task.title || "无标题任务"}](obsidian://dida-task?didaId=${task.didaId})`;
         editor.setLine(cursor.line, before + linkText + after);
