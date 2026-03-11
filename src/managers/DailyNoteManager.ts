@@ -2,6 +2,15 @@ import { App, Notice, TFile } from "obsidian";
 import DidaSyncPlugin from "../main";
 import { DidaTask } from "../types";
 
+interface ParsedTaskBlock {
+    hasHeader: boolean;
+    headerLineIndex: number;
+    insertLineIndex: number; // Position to insert new tasks
+    existingTaskIds: Set<string>; // didaId set
+    existingTaskTitles: Set<string>; // title set (normalized)
+    hasExistingContent: boolean; // if there are any tasks or content in the block
+}
+
 export class DailyNoteManager {
     app: App;
     plugin: DidaSyncPlugin;
@@ -27,22 +36,172 @@ export class DailyNoteManager {
 
             const targetHeader = this.plugin.settings.dailySyncTargetBlockHeader;
             const isCallout = targetHeader.trim().startsWith(">");
-            const taskPrefix = isCallout ? "> - " : "- ";
 
+            // Get tasks for the target date
             const tasks = this.selectTasksForDate(this.plugin.settings.tasks, targetDate);
-            const formattedTasks = this.formatTasks(tasks, targetDate, taskPrefix);
 
-            await this.replaceTaskBlockUnderHeader(activeFile, targetHeader, formattedTasks, isCallout);
+            // Use new smart append logic
+            await this.smartAppendTasksToHeader(activeFile, targetHeader, tasks, targetDate, isCallout);
 
-            if (tasks.length === 0) {
-                new Notice("今日无待办任务");
-            } else {
-                new Notice(`成功同步 ${tasks.length} 个任务到日记`);
-            }
         } catch (e) {
             console.error(e);
             new Notice(`同步失败: ${e instanceof Error ? e.message : "未知错误"}`);
         }
+    }
+
+    async smartAppendTasksToHeader(file: TFile, targetHeader: string, fetchedTasks: DidaTask[], targetDate: string, isCallout: boolean) {
+        await this.app.vault.process(file, (data) => {
+            const lines = data.split("\n");
+            const parsed = this.parseExistingTaskBlock(lines, targetHeader);
+
+            if (!parsed.hasHeader) {
+                throw new Error(`当前文档未找到 '${targetHeader}' 区块`);
+            }
+
+            // Deduplication
+            const tasksToAppend: DidaTask[] = [];
+            for (const task of fetchedTasks) {
+                const didaId = task.didaId || task.id;
+                // Normalize title: remove newlines, trim
+                const title = task.title.replace(/\n/g, " ").trim();
+
+                // 1. Strong Match: ID
+                if (didaId && parsed.existingTaskIds.has(didaId)) {
+                    continue;
+                }
+                // 2. Weak Match: Title
+                if (parsed.existingTaskTitles.has(title)) {
+                    continue;
+                }
+
+                tasksToAppend.push(task);
+            }
+
+            const taskPrefix = isCallout ? "> - " : "- ";
+
+            if (tasksToAppend.length === 0) {
+                // No new tasks to add
+                if (fetchedTasks.length === 0 && !parsed.hasExistingContent) {
+                    // Case: No tasks fetched AND no existing content -> Write "No tasks" placeholder
+                    const noTaskLine = `${taskPrefix}无待办任务`;
+                    // Check if "No tasks" already exists to avoid duplication? 
+                    // parsed.hasExistingContent covers this if "No tasks" is treated as content.
+                    // But "No tasks" usually doesn't match isTaskLine, so hasExistingContent=true (as note).
+                    // So we probably don't need to do anything if "No tasks" is already there.
+                    // But if parsed.hasExistingContent is FALSE (empty block), we add it.
+                    lines.splice(parsed.insertLineIndex, 0, noTaskLine);
+                    new Notice("今日无待办任务");
+                    return lines.join("\n");
+                }
+                // Case: All duplicate or Empty fetch but has content -> Do nothing
+                new Notice("没有新任务需要同步");
+                return lines.join("\n");
+            }
+
+            // Append new tasks
+            const newLines = this.formatTasks(tasksToAppend, targetDate, taskPrefix);
+
+            // Insert
+            lines.splice(parsed.insertLineIndex, 0, ...newLines);
+            new Notice(`成功同步 ${tasksToAppend.length} 个新任务`);
+            return lines.join("\n");
+        });
+    }
+
+    parseExistingTaskBlock(lines: string[], headerPattern: string): ParsedTaskBlock {
+        const headerIndex = lines.findIndex(line => line.trim().startsWith(headerPattern.trim()));
+        if (headerIndex === -1) {
+            return {
+                hasHeader: false,
+                headerLineIndex: -1,
+                insertLineIndex: -1,
+                existingTaskIds: new Set(),
+                existingTaskTitles: new Set(),
+                hasExistingContent: false
+            };
+        }
+
+        const existingTaskIds = new Set<string>();
+        const existingTaskTitles = new Set<string>();
+        let insertLineIndex = headerIndex + 1;
+        let hasExistingContent = false;
+
+        // Scan subsequent lines
+        for (let i = headerIndex + 1; i < lines.length; i++) {
+            const line = lines[i];
+            const trimmed = line.trim();
+
+            // Check if end of block: Next Header
+            // We assume headers start with #
+            if (trimmed.startsWith("#")) break;
+
+            const isTask = this.isTaskLine(trimmed);
+
+            if (isTask) {
+                // Extract info
+                const id = this.extractDidaId(trimmed);
+                if (id) existingTaskIds.add(id);
+
+                const title = this.extractTaskTitle(trimmed);
+                if (title) existingTaskTitles.add(title);
+
+                hasExistingContent = true;
+                // Update insertion point to be after this task
+                insertLineIndex = i + 1;
+            } else {
+                // Non-task line
+                if (trimmed !== "") {
+                    // Content exists (could be a note, or "No tasks" text)
+                    hasExistingContent = true;
+                    // We do NOT update insertLineIndex here, 
+                    // so new tasks will be inserted BEFORE these notes 
+                    // (if they are after the last task).
+                    // Wait, PRD says: "Append to end of existing task list... preserving user notes".
+                    // If we have:
+                    // - Task A
+                    // Note B
+                    // We want:
+                    // - Task A
+                    // - New Task
+                    // Note B
+                    // So `insertLineIndex` staying at `i` (after Task A) is correct.
+                }
+            }
+        }
+
+        return {
+            hasHeader: true,
+            headerLineIndex: headerIndex,
+            insertLineIndex,
+            existingTaskIds,
+            existingTaskTitles,
+            hasExistingContent
+        };
+    }
+
+    private isTaskLine(line: string): boolean {
+        // Matches "- [ ]", "- [x]", "> - [ ]", "* [ ]"
+        return /^(\s*>)?\s*[-*]\s\[.\]/.test(line);
+    }
+
+    private extractDidaId(line: string): string | null {
+        // Matches didaId=... inside the link
+        const match = line.match(/didaId=([^&\)]+)/);
+        return match ? match[1] : null;
+    }
+
+    private extractTaskTitle(line: string): string {
+        // Remove Checkbox prefix
+        let text = line.replace(/^(\s*>)?\s*[-*]\s\[.\]\s*/, "");
+
+        // Remove Dida Link and Date if present
+        // Format: Title [🔗Dida](...) 📅 ...
+        // We split by [🔗Dida] to be safe
+        const parts = text.split("[🔗Dida]");
+        if (parts.length > 0) {
+            text = parts[0].trim();
+        }
+        return text;
     }
 
     async resolveTargetDate(file: TFile): Promise<string | null> {
@@ -110,56 +269,5 @@ export class DailyNoteManager {
         });
     }
 
-    async replaceTaskBlockUnderHeader(file: TFile, targetHeader: string, newLines: string[], isCallout: boolean) {
-        await this.app.vault.process(file, (data) => {
-            const lines = data.split("\n");
-            // Find header index
-            const headerIndex = lines.findIndex(line => line.trim().startsWith(targetHeader.trim()));
 
-            if (headerIndex === -1) {
-                throw new Error(`当前文档未找到 '${targetHeader}' 区块`);
-            }
-
-            const startIndex = headerIndex + 1;
-            let endIndex = startIndex;
-
-            // Consume existing task lines
-            while (endIndex < lines.length) {
-                const line = lines[endIndex].trim();
-                let shouldConsume = false;
-
-                if (isCallout) {
-                    // For callouts, consume lines starting with ">"
-                    // But be careful not to consume a NEW callout header (e.g. > [!info] Next)
-                    // We assume tasks are > - ... or continuation > ...
-                    // If it hits a new callout type syntax > [!...] stop? 
-                    // Simple logic: consume > - or > lines until non-> line or new header
-                    if (line.startsWith(">")) {
-                        // Check if it's potentially a new callout header
-                        if (line.match(/^>\s*\[!.*\]/)) {
-                            shouldConsume = false;
-                        } else {
-                            shouldConsume = true;
-                        }
-                    }
-                } else {
-                    // For normal headers, consume lines starting with "- [ ]" or "- [x]" or "- "
-                    // Also maybe numbered lists? Sticking to bullets for now.
-                    if (line.startsWith("- [") || line.startsWith("- ")) {
-                        shouldConsume = true;
-                    }
-                }
-
-                if (shouldConsume) {
-                    endIndex++;
-                } else {
-                    break;
-                }
-            }
-
-            // Insert new lines
-            lines.splice(startIndex, endIndex - startIndex, ...newLines);
-            return lines.join("\n");
-        });
-    }
 }

@@ -104,7 +104,7 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     autoCleanCompletedTasks: false,
     autoCleanInterval: 1,
     enableNativeTaskSync: true,
-    dailySyncTargetBlockHeader: "> [!todo] 核心目标",
+    dailySyncTargetBlockHeader: "> [!todo]",
     projectCollapsedStates: {},
     projectOrder: [],
     defaultViewMode: "task",
