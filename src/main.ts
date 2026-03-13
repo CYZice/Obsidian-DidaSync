@@ -95,7 +95,7 @@ export default class DidaSyncPlugin extends Plugin {
 
         this.addCommand({
             id: 'sync-daily-tasks',
-            name: 'Sync Daily Tasks (同步今日任务到日记)',
+            name: '同步今日任务到日记',
             callback: () => {
                 this.dailyNoteManager.syncTodayTasksToActiveNote();
             }
@@ -103,7 +103,7 @@ export default class DidaSyncPlugin extends Plugin {
 
         this.addCommand({
             id: 'insert-create-dida-task',
-            name: 'Insert/Create Dida Task (插入/创建滴答任务)',
+            name: '插入/创建滴答任务',
             editorCallback: (editor: Editor) => {
                 const cursor = editor.getCursor();
                 this.showTaskSuggestions(editor, cursor);

@@ -39,13 +39,13 @@ export class TaskSuggestionPopup {
     getFilteredTasks() {
         return (this.plugin.settings.tasks || []).filter(t => {
             if (t.parentId) return false;
-            
+
             const isCompleted = t.completed === true || t.completed === 2 || t.status === 2;
             const isArchived = t.projectClosed === true;
-            
+
             if (isCompleted) return false;
             if (!this.plugin.settings.showArchivedProjects && isArchived) return false;
-            
+
             return true;
         });
     }
@@ -53,28 +53,28 @@ export class TaskSuggestionPopup {
     renderSuggestions() {
         if (!this.element) return;
         this.element.innerHTML = "";
-        
+
         const searchContainer = document.createElement("div");
         searchContainer.className = "dida-search-container";
-        
+
         const input = document.createElement("input");
         input.type = "text";
         input.className = "dida-search-input";
         input.placeholder = "搜索任务或输入新任务标题（Enter确认）...";
         input.value = this.searchTerm;
-        
+
         let isComposing = false;
         input.addEventListener("compositionstart", () => {
             isComposing = true;
         });
-        
+
         input.addEventListener("compositionend", () => {
             isComposing = false;
             this.searchTerm = input.value;
             this.filterTasks();
             this.renderSuggestions();
         });
-        
+
         input.addEventListener("input", (e: any) => {
             this.searchTerm = e.target.value;
             if (!isComposing) {
@@ -82,26 +82,26 @@ export class TaskSuggestionPopup {
                 this.renderSuggestions();
             }
         });
-        
+
         input.addEventListener("keydown", (e) => {
             if (e.key === "Escape") {
                 e.preventDefault();
                 this.close();
             }
         });
-        
+
         searchContainer.appendChild(input);
         this.element.appendChild(searchContainer);
-        
+
         setTimeout(() => input.focus(), 10);
-        
+
         if (this.searchTerm) {
             const hint = document.createElement("div");
             hint.className = "dida-search-hint";
             hint.textContent = `搜索结果: ${this.filteredTasks.length} 个任务`;
             this.element.appendChild(hint);
         }
-        
+
         if (this.filteredTasks.length === 0) {
             const noTasks = document.createElement("div");
             noTasks.className = "dida-no-tasks";
@@ -111,25 +111,25 @@ export class TaskSuggestionPopup {
             const suggestionsContainer = document.createElement("div");
             suggestionsContainer.className = "dida-suggestions-container";
             this.element.appendChild(suggestionsContainer);
-            
+
             this.filteredTasks.forEach((task, index) => {
                 const item = document.createElement("div");
                 item.className = "dida-suggestion-item " + (index === this.selectedIndex ? "selected" : "");
                 item.setAttribute("data-index", index.toString());
-                
+
                 const titleDiv = document.createElement("div");
                 titleDiv.className = "dida-suggestion-title";
                 titleDiv.textContent = task.title || "无标题任务";
                 if (task.completed) titleDiv.classList.add("completed");
                 item.appendChild(titleDiv);
-                
+
                 if (task.projectName) {
                     const projectDiv = document.createElement("div");
                     projectDiv.className = "dida-suggestion-project";
                     projectDiv.textContent = "项目: " + task.projectName;
                     item.appendChild(projectDiv);
                 }
-                
+
                 suggestionsContainer.appendChild(item);
             });
         }
@@ -137,7 +137,7 @@ export class TaskSuggestionPopup {
 
     setupEventListeners() {
         if (!this.element) return;
-        
+
         this.element.addEventListener("keydown", (e) => {
             const target = e.target as HTMLElement;
             if (target.classList.contains("dida-search-input")) {
@@ -257,6 +257,8 @@ export class TaskSuggestionPopup {
             const task = this.filteredTasks[this.selectedIndex];
             if (this.onSelect) {
                 this.onSelect(task);
+            } else {
+                this.plugin.insertTaskLink(this.editor, this.cursor, task);
             }
         }
         this.close();
@@ -269,18 +271,22 @@ export class TaskSuggestionPopup {
             // If addTask returns a task, we use it.
             // But plugin.addTask logic might handle the rest.
             // The original code calls insertTaskLink.
-            
+
             // Wait, addTask returns the created task?
             // In original code: `let e = await this.plugin.addTask(t, "收集箱", "inbox");`
-            
+
             // Then find it in settings to ensure we have latest or use returned
             const found = this.plugin.settings.tasks.find(t => t.id === task.id);
             const taskToUse = found && found.didaId ? found : { ...found || task, didaId: found?.id || task.id };
-            
+
             // Wait, if it's local only, didaId might be null or same as id?
             // Original code: `a && a.didaId ? this.plugin.insertTaskLink(...) : (i = {...}, this.plugin.insertTaskLink(...))`
-            
-            this.plugin.insertTaskLink(this.editor, this.cursor, taskToUse);
+
+            if (this.onSelect) {
+                this.onSelect(taskToUse);
+            } else {
+                this.plugin.insertTaskLink(this.editor, this.cursor, taskToUse);
+            }
         } catch (e) {
             console.error(e);
         }
