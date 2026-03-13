@@ -1,10 +1,10 @@
 <h1 align="center">Obsidian-DidaSync</h1>
 
-<p align="center"><b>Two-way Sync Between Obsidian and TickTick/Dida365.</b></p>
+<p align="center"><b>Obsidian 与 滴答清单/TickTick 的双向同步插件</b></p>
 
 <p align="center">
 
-A powerful task synchronization plugin for Obsidian that brings your TickTick/Dida365 tasks directly into your notes with visual calendar and timeline views.
+一个强大的 Obsidian 任务同步插件，将您的滴答清单/TickTick 任务直接带入笔记中，并提供直观的日历时间轴和时间块视图。
 
 </p>
 
@@ -36,70 +36,70 @@ A powerful task synchronization plugin for Obsidian that brings your TickTick/Di
 
 <p align="center">
 
-<b>English</b> | <a href="./README_zh-CN.md">简体中文</a>
+<b>简体中文</b> | <a href="./README_EN.md">English</a>
 
 </p>
 
-## Highlights
+## 亮点
 
-### 🔄 Two-way Sync
+### 🔄 双向同步
 
-Obsidian-DidaSync ensures your tasks are always up-to-date, whether you're in Obsidian or TickTick.
+Obsidian-DidaSync 确保您的任务始终保持最新，无论是在 Obsidian 还是在滴答清单中。
 
-| Native Task Sync | Quick Task Creation |
+| 原生任务同步 | 快速创建任务 |
 |:--:|:--:|
 | ![Native Task Sync](./assets/native-task-sync.png) | ![Sidebar View](./assets/sidebar-view.png) |
-| Sync your TickTick tasks directly into your notes, maintaining status and details across platforms | Quickly create tasks from within your Obsidian notes with dedicated modals and commands |
+| 直接将滴答清单任务同步到笔记中，跨平台保持状态和详情同步 | 使用专用弹窗和命令，从 Obsidian 笔记中快速创建任务 |
 
-### 📅 Visual Task Management
+### 📅 视觉化任务管理
 
-| Time Block View | Timeline View | Sidebar View |
+| 时间块视图 | 时间线视图 | 侧边栏视图 |
 |:--:|:--:|:--:|
 | ![Time Block View](./assets/time-block-view.png) | ![Timeline View](./assets/timeline-view.png) | ![Sidebar View](./assets/sidebar-view.png) |
-| Visualize your day with a calendar-style time block view of your tasks | A vertical timeline to track your task progress and upcoming deadlines | Manage your entire TickTick task list directly from the Obsidian sidebar |
+| 使用日历风格的时间块视图可视化您的一天 | 垂直时间线，跟踪任务进度和截止日期 | 直接从 Obsidian 侧边栏管理整个滴答清单任务列表 |
 
-## Features
+## 功能特性
 
-| Feature | Description |
+| 功能 | 描述 |
 |---------|-------------|
-| 🔄 **Two-way Sync** | Synchronize task status, content, and details between Obsidian and TickTick/Dida365 |
-| 🗓️ **Visual Views** | Multiple views including Time Block, Timeline, and Sidebar Task List |
-| 📝 **Daily Note Integration** | Automatically sync today's tasks directly into your daily notes |
-| ⚡ **Quick Commands** | Add tasks to specific projects or insert task suggestions with simple hotkeys |
-| 🕒 **Auto-Sync** | Configurable background synchronization to keep everything in sync |
-| 🎛️ **Project Management** | View and manage tasks grouped by your TickTick/Dida365 projects |
+| 🔄 **双向同步** | 在 Obsidian 和 滴答清单/TickTick 之间同步任务状态、内容和详情 |
+| 🗓️ **多样视图** | 提供时间块、时间线和侧边栏任务列表等多种查看方式 |
+| 📝 **日记集成** | 自动将今日任务同步到您的日记中 |
+| ⚡ **快速命令** | 通过简单的快捷键将任务添加到特定项目或插入任务建议 |
+| 🕒 **自动同步** | 可配置的后台同步，保持数据实时更新 |
+| 🎛️ **项目管理** | 查看并管理按滴答清单/TickTick 项目分组的任务 |
 
-## Quick Start
+## 快速开始
 
-1. Open **Obsidian Settings** → **Community Plugins** → **Browse** → Search **"Obsidian-DidaSync"**
-2. Install and enable the plugin
-3. Configure your API key or use OAuth in the plugin settings to connect your TickTick/Dida365 account
-4. Open the sidebar or use the ribbon icons to start syncing your tasks!
+1. 打开 **Obsidian 设置** → **第三方插件** → **浏览** → 搜索 **"Obsidian-DidaSync"**
+2. 安装并启用插件
+3. 在插件设置中配置 API Key 或使用 OAuth 连接您的滴答清单/TickTick 账号
+4. 打开侧边栏或使用功能条图标开始同步您的任务！
 
-## Installation
+## 安装
 
-### Community Plugin Store (Recommended)
+### 社区插件市场（推荐）
 
-See Quick Start above.
+见上方的“快速开始”。
 
-### Manual Installation
+### 手动安装
 
-1. Go to [Releases](https://github.com/CYZice/Obsidian-DidaSync/releases) and download the latest `main.js`, `manifest.json`, and `styles.css`
-2. Create a folder: `<vault>/.obsidian/plugins/Obsidian-DidaSync/`
-3. Copy the files into that folder and enable the plugin in Obsidian Settings
+1. 前往 [Releases](https://github.com/CYZice/Obsidian-DidaSync/releases) 下载最新的 `main.js`, `manifest.json`, 和 `styles.css`
+2. 创建文件夹：`<vault>/.obsidian/plugins/Obsidian-DidaSync/`
+3. 将文件复制到该文件夹中，并在 Obsidian 设置中启用插件
 
-## Support
+## 支持
 
-If you find Obsidian-DidaSync helpful, please consider starring the repository or reporting issues to help improve it!
+如果您觉得 Obsidian-DidaSync 对您有所帮助，请考虑为仓库点个 Star 或提交 Issue 以帮助改进！
 
 <p align="center">
 
 <a href="https://github.com/CYZice/Obsidian-DidaSync/issues" target="_blank">
-<img src="https://img.shields.io/badge/Report-Issues-red?style=for-the-badge" alt="Issues">
+<img src="https://img.shields.io/badge/反馈-问题-red?style=for-the-badge" alt="Issues">
 </a>
 
 </p>
 
-## License
+## 开源协议
 
 [MIT License](LICENSE)
