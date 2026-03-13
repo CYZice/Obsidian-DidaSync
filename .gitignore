@@ -10,7 +10,7 @@ Thumbs.db
 .vscode/
 
 # Build artifacts
-main.js
+# main.js
 
 # Configuration with secrets
 data.json
