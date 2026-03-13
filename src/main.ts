@@ -54,7 +54,7 @@ export default class DidaSyncPlugin extends Plugin {
         this.registerView(TASK_VIEW_TYPE, (leaf) => new TaskView(leaf, this));
         this.registerView(TIME_BLOCK_VIEW_TYPE, (leaf) => new DidaTimeBlockView(leaf, this));
 
-        this.addRibbonIcon('check-square', 'Dida Sync', () => {
+        this.addRibbonIcon('check-square', 'Obsidian-DidaSync', () => {
             this.openTaskViewWithCache();
         });
         this.addRibbonIcon("calendar-check", "滴答时间线视图", () => {

@@ -7004,7 +7004,7 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
     this.addSettingTab(new DidaSyncSettingTab(this.app, this));
     this.registerView(TASK_VIEW_TYPE, (leaf) => new TaskView(leaf, this));
     this.registerView(TIME_BLOCK_VIEW_TYPE, (leaf) => new DidaTimeBlockView(leaf, this));
-    this.addRibbonIcon("check-square", "Dida Sync", () => {
+    this.addRibbonIcon("check-square", "Obsidian-DidaSync", () => {
       this.openTaskViewWithCache();
     });
     this.addRibbonIcon("calendar-check", "\u6EF4\u7B54\u65F6\u95F4\u7EBF\u89C6\u56FE", () => {

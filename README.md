@@ -1,71 +1,105 @@
-# Dida Sync
-双向同步，打通 Obsidian 与滴答清单的任务管理边界。
+<h1 align="center">Obsidian-DidaSync</h1>
 
-Agent-native Task Sync for Obsidian — chat, sync, manage, and schedule, all in one place.
+<p align="center"><b>Two-way Sync Between Obsidian and TickTick/Dida365.</b></p>
 
-[English](README.EN.md) | [简体中文](README.md)
+<p align="center">
+
+A powerful task synchronization plugin for Obsidian that brings your TickTick/Dida365 tasks directly into your notes with visual calendar and timeline views.
+
+</p>
+
+<p align="center"><a href="https://github.com/CYZice/Obsidian-DidaSync/stargazers">
+
+<img src="https://img.shields.io/github/stars/CYZice/Obsidian-DidaSync?style=flat-square&color=6c5ce7" alt="GitHub Stars">
+
+</a>
+
+<a href="https://github.com/CYZice/Obsidian-DidaSync/releases/latest">
+
+<img src="https://img.shields.io/github/v/release/CYZice/Obsidian-DidaSync?style=flat-square&color=00b894" alt="Latest Release">
+
+</a>
+
+<a href="https://github.com/CYZice/Obsidian-DidaSync/releases">
+
+<img src="https://img.shields.io/github/downloads/CYZice/Obsidian-DidaSync/total?style=flat-square&color=0984e3" alt="Downloads">
+
+</a>
+
+<a href="https://github.com/CYZice/Obsidian-DidaSync/blob/main/LICENSE">
+
+<img src="https://img.shields.io/github/license/CYZice/Obsidian-DidaSync?style=flat-square&color=636e72" alt="License">
+
+</a>
+
+</p>
+
+<p align="center">
+
+<b>English</b> | <a href="./README_zh-CN.md">简体中文</a>
+
+</p>
 
 ## Highlights
-### 🤖 智能任务管理
-![智能任务管理](assets/native-task-sync.png)
-Dida Sync 是你在 Obsidian 中的任务指挥中心。
 
-| 原生任务关联 | 实时双向同步 | 智能搜索关联 |
-| :--- | :--- | :--- |
-| 完美支持 Obsidian 原生 `- [ ]` 语法，通过右键菜单一键同步并建立双向关联 | 深度打通滴答清单 API，实现任务标题、到期日期及完成状态的毫秒级互通 | 支持在笔记中搜索并关联滴答清单已有任务，自动填充标题并保持数据一致性 |
+### 🔄 Two-way Sync
 
-### 📅 多维视图支持
-![时间线视图](assets/timeline-view.png)
-![时间段视图](assets/time-block-view.png)
-![项目管理](assets/sidebar-view.png)
-| 时间线视图 (Timeline) | 时间段视图 (Time Block) | 项目清单管理 |
-| :--- | :--- | :--- |
-| 内置日历视图，直观展示每日任务分布，支持快速勾选完成 | 支持拖拽调整起止时间，让日程安排具备可视化感知 | 右侧边栏提供清晰的项目维度任务聚合，支持子任务/检查项的层级化编辑 |
+Obsidian-DidaSync ensures your tasks are always up-to-date, whether you're in Obsidian or TickTick.
+
+| Native Task Sync | Quick Task Creation |
+|:--:|:--:|
+| ![Native Task Sync](./assets/native-task-sync.png) | ![Sidebar View](./assets/sidebar-view.png) |
+| Sync your TickTick tasks directly into your notes, maintaining status and details across platforms | Quickly create tasks from within your Obsidian notes with dedicated modals and commands |
+
+### 📅 Visual Task Management
+
+| Time Block View | Timeline View | Sidebar View |
+|:--:|:--:|:--:|
+| ![Time Block View](./assets/time-block-view.png) | ![Timeline View](./assets/timeline-view.png) | ![Sidebar View](./assets/sidebar-view.png) |
+| Visualize your day with a calendar-style time block view of your tasks | A vertical timeline to track your task progress and upcoming deadlines | Manage your entire TickTick task list directly from the Obsidian sidebar |
 
 ## Features
-| 功能 | 描述 |
-| :--- | :--- |
-| 💬 日记自动同步 | 支持将今日任务智能追加至 Daily Notes 指定区域，内置重复项过滤与手动备注保护 |
-| 🔗 非侵入式任务引用 | 通过 `@@` 语法或命令面板快速插入任务链接，支持在文档正文中轻量化引用任务 |
-| 🔐 标准化 OAuth 认证 | 采用官方 OAuth 2.0 接入流程，显著提升了账户授权的安全性与连接稳定性 |
-| 🎨 分栏设置体验 | 重构设置界面为侧边分栏布局，将同步逻辑、UI 样式、日记配置进行模块化拆解 |
-| 🧹 自动化数据维护 | 新增自动清理已完成任务与数据重置功能，有效防止长期使用后的数据堆积 |
 
-## Usage Guide
-### 📓 日记任务同步
-插件支持将今天的滴答清单任务自动同步到你的日记（Daily Notes）中。
-- **智能识别**：通过文件名（`YYYY-MM-DD`）或 Frontmatter 中的 `date` 字段自动识别日期。
-- **目标区块**：在日记中设置一个标题或 Callout 块（如 `> [!todo]`）作为同步目的地。
-- **追加与去重**：新任务会自动追加到列表末尾，且已存在的任务不会被重复添加，保护你手动编辑的内容。
-
-### 🔗 原生任务关联
-在 Obsidian 中使用 `- [ ]` 语法创建任务后，通过**右键菜单**即可：
-- **同步到滴答**：创建新任务并自动建立双向关联。
-- **关联/搜索**：将当前行与滴答清单中已有的任务手动绑定。
-- **到期日期**：直接在右键菜单中唤起日期选择器。
-
-### 🏷️ @@ 快速引用任务
-在文档任意位置，通过简单的输入即可引用任务：
-- **快速插入**：使用 `@@` 语法或命令面板中的 "插入/创建滴答任务"。
-- **智能链接**：任务将以 `[@@任务标题](链接)` 的形式插入，点击即可在侧边栏快速预览任务详情。
-- **无感提及**：适用于在笔记中非侵入式地提及任务，而不需要将其转变为待办事项。
+| Feature | Description |
+|---------|-------------|
+| 🔄 **Two-way Sync** | Synchronize task status, content, and details between Obsidian and TickTick/Dida365 |
+| 🗓️ **Visual Views** | Multiple views including Time Block, Timeline, and Sidebar Task List |
+| 📝 **Daily Note Integration** | Automatically sync today's tasks directly into your daily notes |
+| ⚡ **Quick Commands** | Add tasks to specific projects or insert task suggestions with simple hotkeys |
+| 🕒 **Auto-Sync** | Configurable background synchronization to keep everything in sync |
+| 🎛️ **Project Management** | View and manage tasks grouped by your TickTick/Dida365 projects |
 
 ## Quick Start
-1. **安装**: 打开 Obsidian 设置 → 社区插件 → 浏览 → 搜索 "Dida Sync" 并安装。
-2. **配置**: 在插件设置中配置你的 `Client ID` 和 `Client Secret` 并完成 OAuth 认证。
-3. **同步**: 点击状态栏 "滴答清单" 或使用 `Ctrl+P` 输入 "手动双向同步" 开始。
+
+1. Open **Obsidian Settings** → **Community Plugins** → **Browse** → Search **"Obsidian-DidaSync"**
+2. Install and enable the plugin
+3. Configure your API key or use OAuth in the plugin settings to connect your TickTick/Dida365 account
+4. Open the sidebar or use the ribbon icons to start syncing your tasks!
 
 ## Installation
-### 社区插件市场 (推荐)
-见上面的快速开始。
 
-### 手动安装
-1. 前往 [Releases](https://github.com/CYZice/dida-sync/releases) 下载最新的 `main.js`, `manifest.json`, `styles.css`。
-2. 在你的库中创建文件夹: `<vault>/.obsidian/plugins/dida-sync/`。
-3. 将下载的文件复制到该文件夹，然后在设置中启用。
+### Community Plugin Store (Recommended)
 
-## Contributing
-欢迎任何形式的贡献——错误报告、文档改进、功能增强。
+See Quick Start above.
+
+### Manual Installation
+
+1. Go to [Releases](https://github.com/CYZice/Obsidian-DidaSync/releases) and download the latest `main.js`, `manifest.json`, and `styles.css`
+2. Create a folder: `<vault>/.obsidian/plugins/Obsidian-DidaSync/`
+3. Copy the files into that folder and enable the plugin in Obsidian Settings
+
+## Support
+
+If you find Obsidian-DidaSync helpful, please consider starring the repository or reporting issues to help improve it!
+
+<p align="center">
+
+<a href="https://github.com/CYZice/Obsidian-DidaSync/issues" target="_blank">
+<img src="https://img.shields.io/badge/Report-Issues-red?style=for-the-badge" alt="Issues">
+</a>
+
+</p>
 
 ## License
-MIT License
+
+[MIT License](LICENSE)

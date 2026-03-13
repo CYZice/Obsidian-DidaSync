@@ -1,5 +1,5 @@
 {
-    "name": "dida-sync-obsidian",
+    "name": "obsidian-didasync",
     "version": "1.0.1",
     "description": "与滴答清单双向同步任务的插件",
     "main": "main.js",
