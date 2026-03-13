@@ -37,7 +37,7 @@ __export(main_exports, {
   default: () => DidaSyncPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian9 = require("obsidian");
+var import_obsidian13 = require("obsidian");
 
 // src/api/DidaApiClient.ts
 var import_electron = require("electron");
@@ -5230,6 +5230,8 @@ var TaskSuggestionPopup = class {
       const task = this.filteredTasks[this.selectedIndex];
       if (this.onSelect) {
         this.onSelect(task);
+      } else {
+        this.plugin.insertTaskLink(this.editor, this.cursor, task);
       }
     }
     this.close();
@@ -5240,7 +5242,11 @@ var TaskSuggestionPopup = class {
       const task = await this.plugin.addTask(title, "\u6536\u96C6\u7BB1", "inbox");
       const found = this.plugin.settings.tasks.find((t) => t.id === task.id);
       const taskToUse = found && found.didaId ? found : { ...found || task, didaId: (found == null ? void 0 : found.id) || task.id };
-      this.plugin.insertTaskLink(this.editor, this.cursor, taskToUse);
+      if (this.onSelect) {
+        this.onSelect(taskToUse);
+      } else {
+        this.plugin.insertTaskLink(this.editor, this.cursor, taskToUse);
+      }
     } catch (e) {
       console.error(e);
     }
@@ -6208,16 +6214,25 @@ var TimelineViewModal = class {
 };
 
 // src/settings/DidaSyncSettingTab.ts
+var import_obsidian12 = require("obsidian");
+
+// src/settings/views/oauth-settings-view.ts
 var import_obsidian8 = require("obsidian");
-var DidaSyncSettingTab = class extends import_obsidian8.PluginSettingTab {
+
+// src/settings/views/abstract-settings-view.ts
+var AbstractSettingsView = class {
   constructor(app, plugin) {
-    super(app, plugin);
+    this.app = app;
     this.plugin = plugin;
   }
-  display() {
-    const { containerEl } = this;
-    containerEl.empty();
-    containerEl.createEl("h2", { text: "\u6EF4\u7B54\u6E05\u5355\u540C\u6B65\u8BBE\u7F6E" });
+};
+
+// src/settings/views/oauth-settings-view.ts
+var OAuthSettingsView = class extends AbstractSettingsView {
+  constructor(app, plugin) {
+    super(app, plugin);
+  }
+  render(containerEl) {
     const oauthContainer = containerEl.createDiv();
     oauthContainer.createEl("h3", { text: "OAuth\u914D\u7F6E" });
     const step1Div = oauthContainer.createDiv();
@@ -6257,7 +6272,7 @@ var DidaSyncSettingTab = class extends import_obsidian8.PluginSettingTab {
         const port = parseInt(val) || 8080;
         this.plugin.settings.serverPort = port;
         await this.plugin.saveSettings();
-        this.updateRedirectUriDisplay(port);
+        this.updateRedirectUriDisplay(containerEl, port);
       }, 300);
       t.setPlaceholder("8080").setValue(this.plugin.settings.serverPort.toString()).onChange(debouncedSave);
     });
@@ -6274,101 +6289,14 @@ var DidaSyncSettingTab = class extends import_obsidian8.PluginSettingTab {
       statusDiv.style.color = "#c30014ff";
       statusDiv.textContent = "\u2717 \u672A\u8BA4\u8BC1";
     }
-    containerEl.createEl("h3", { text: "\u540C\u6B65\u8BBE\u7F6E" });
-    new import_obsidian8.Setting(containerEl).setName("\u81EA\u52A8\u540C\u6B65").setDesc("\u542F\u7528\u540E\u4F1A\u5B9A\u671F\u4ECE\u6EF4\u7B54\u6E05\u5355\u540C\u6B65\u4EFB\u52A1").addToggle((t) => t.setValue(this.plugin.settings.autoSync).onChange(async (t2) => {
-      this.plugin.settings.autoSync = t2;
-      await this.plugin.saveSettings();
-      this.plugin.syncManager.setupAutoSync();
-    }));
-    new import_obsidian8.Setting(containerEl).setName("\u663E\u793A\u5F52\u6863\u9879\u76EE").setDesc("\u9009\u62E9\u662F\u5426\u5728\u4EFB\u52A1\u6E05\u5355\u4E2D\u663E\u793A\u5DF2\u5F52\u6863\u7684\u9879\u76EE").addDropdown((t) => t.addOption("false", "\u9690\u85CF\u5F52\u6863\u9879\u76EE").addOption("true", "\u663E\u793A\u5F52\u6863\u9879\u76EE").setValue(this.plugin.settings.showArchivedProjects.toString()).onChange(async (t2) => {
-      this.plugin.settings.showArchivedProjects = "true" === t2;
-      await this.plugin.saveSettings();
-      this.plugin.refreshTaskView();
-    }));
-    new import_obsidian8.Setting(containerEl).setName("\u540C\u6B65\u95F4\u9694").setDesc("\u81EA\u52A8\u4ECE\u6EF4\u7B54\u6E05\u5355\u540C\u6B65\u7684\u95F4\u9694\u65F6\u95F4\uFF08\u5206\u949F\uFF09").addSlider((t) => t.setLimits(5, 120, 5).setValue(this.plugin.settings.syncInterval).setDynamicTooltip().onChange(async (t2) => {
-      this.plugin.settings.syncInterval = t2;
-      await this.plugin.saveSettings();
-      this.plugin.syncManager.setupAutoSync();
-    }));
-    new import_obsidian8.Setting(containerEl).setName("\u624B\u52A8\u540C\u6B65").setDesc("\u7ACB\u5373\u6267\u884C\u53CC\u5411\u540C\u6B65").addButton((t) => t.setButtonText("\u5F00\u59CB\u540C\u6B65").onClick(async () => {
-      await this.plugin.manualSync();
-    }));
-    containerEl.createEl("h3", { text: "\u4E3B\u4EFB\u52A1\u89C6\u56FE\u8BBE\u7F6E" });
-    new import_obsidian8.Setting(containerEl).setName("\u9ED8\u8BA4\u89C6\u56FE\u6A21\u5F0F").setDesc("\u53F3\u4FA7\u8FB9\u680F\u6253\u5F00\u4EFB\u52A1\u6E05\u5355\u65F6\u9ED8\u8BA4\u663E\u793A\u7684\u89C6\u56FE\u7C7B\u578B").addDropdown((t) => t.addOption("task", "\u4EFB\u52A1\u5217\u8868").addOption("timeblock", "\u65F6\u95F4\u6BB5\u89C6\u56FE").setValue(this.plugin.settings.defaultViewMode || "task").onChange(async (t2) => {
-      this.plugin.settings.defaultViewMode = t2;
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian8.Setting(containerEl).setName("\u65F6\u95F4\u5757\u6BCF\u5C0F\u65F6\u9AD8\u5EA6").setDesc("\u65F6\u95F4\u6BB5\u89C6\u56FE\u4E2D\u6BCF\u5C0F\u65F6\u7684\u9AD8\u5EA6\uFF08\u50CF\u7D20\uFF09\uFF0C\u8C03\u6574\u540E\u9700\u8981\u5207\u6362\u89C6\u56FE\u624D\u80FD\u751F\u6548").addSlider((t) => t.setLimits(50, 100, 5).setValue(this.plugin.settings.timeBlockHourHeight || 80).setDynamicTooltip().onChange(async (t2) => {
-      this.plugin.settings.timeBlockHourHeight = t2;
-      await this.plugin.saveSettings();
-      document.documentElement.style.setProperty("--dida-hour-height", t2 + "px");
-    }));
-    new import_obsidian8.Setting(containerEl).setName("\u65F6\u95F4\u6BB5\u89C6\u56FE\u8D77\u59CB\u65F6\u95F4").setDesc("\u81EA\u5B9A\u4E49\u8BBE\u7F6E\u65F6\u95F4\u6BB5\u89C6\u56FE\u7684\u8D77\u59CB\u65F6\u95F4\uFF08\u4FDD\u630124\u5C0F\u65F6\u523B\u5EA6\uFF09").addDropdown((e) => {
-      for (let t = 0; t < 24; t++) {
-        var i = t.toString().padStart(2, "0") + ":00";
-        e.addOption(t.toString(), i);
-      }
-      e.setValue((this.plugin.settings.timeBlockStartHour || 0).toString()).onChange(async (t) => {
-        this.plugin.settings.timeBlockStartHour = parseInt(t);
-        await this.plugin.saveSettings();
-        this.plugin.refreshTaskView();
-      });
-    });
-    containerEl.createEl("h3", { text: "\u81EA\u52A8\u6E05\u7406\u8BBE\u7F6E" });
-    const cleanInfo = containerEl.createDiv();
-    cleanInfo.style.cssText = "padding: 10px; border-radius: 5px; margin: 10px 0; color: #6c757d;";
-    cleanInfo.innerHTML = "<strong>\u8BF4\u660E\uFF1A</strong>\u542F\u7528\u81EA\u52A8\u6E05\u7406\u529F\u80FD\u540E\uFF0C\u63D2\u4EF6\u4F1A\u5728\u6BCF\u6B21\u542F\u52A8\u65F6\uFF08\u5EF6\u8FDF30\u79D2\uFF09\u81EA\u52A8\u6E05\u7406\u6307\u5B9A\u65F6\u95F4\u4E4B\u524D\u7684\u5DF2\u5B8C\u6210\u4EFB\u52A1\u6570\u636E\uFF0C\u4EE5\u4FDD\u6301\u6570\u636E\u6587\u4EF6\u7684\u6574\u6D01\u3002\u6B64\u64CD\u4F5C\u4EC5\u6E05\u7406\u672C\u5730\u6570\u636E\uFF0C\u4E0D\u4F1A\u5F71\u54CD\u6EF4\u7B54\u6E05\u5355\u4E91\u7AEF\u6570\u636E\u3002";
-    new import_obsidian8.Setting(containerEl).setName("\u81EA\u52A8\u6E05\u7406\u5DF2\u5B8C\u6210\u4EFB\u52A1").setDesc("\u542F\u7528\u540E\u4F1A\u5728\u63D2\u4EF6\u542F\u52A8\u65F6\u81EA\u52A8\u6E05\u7406\u6307\u5B9A\u65F6\u95F4\u4E4B\u524D\u7684\u5DF2\u5B8C\u6210\u4EFB\u52A1\u6570\u636E").addToggle((t) => t.setValue(this.plugin.settings.autoCleanCompletedTasks).onChange(async (t2) => {
-      this.plugin.settings.autoCleanCompletedTasks = t2;
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian8.Setting(containerEl).setName("\u6E05\u7406\u95F4\u9694").setDesc("\u81EA\u52A8\u6E05\u7406\u5DF2\u5B8C\u6210\u4EFB\u52A1\u7684\u65F6\u95F4\u95F4\u9694\uFF08\u6708\u6570\uFF09").addDropdown((e) => {
-      for (let t = 1; t <= 12; t++)
-        e.addOption(t.toString(), t + "\u4E2A\u6708");
-      e.setValue(this.plugin.settings.autoCleanInterval.toString()).onChange(async (t) => {
-        this.plugin.settings.autoCleanInterval = parseInt(t);
-        await this.plugin.saveSettings();
-      });
-    });
-    containerEl.createEl("h3", { text: "\u539F\u751F\u4EFB\u52A1\u540C\u6B65\u8BBE\u7F6E" });
-    const nativeInfo = containerEl.createDiv();
-    nativeInfo.style.cssText = "padding: 10px; border-radius: 5px; margin: 10px 0; color: #0066cc;";
-    nativeInfo.innerHTML = '<strong>\u8BF4\u660E\uFF1A</strong>\u539F\u751F\u4EFB\u52A1\u540C\u6B65\u529F\u80FD\u652F\u6301\u624B\u52A8\u540C\u6B65Obsidian\u4E2D\u7684\u539F\u751F\u4EFB\u52A1\u683C\u5F0F\uFF08- [ ] \uFF09\u5230\u6EF4\u7B54\u6E05\u5355\u3002\u542F\u7528\u540E\uFF0C\u8F93\u5165"- [ ] "\u65F6\u4F1A\u5F39\u51FA\u64CD\u4F5C\u83DC\u5355\uFF0C\u53EF\u9009\u62E9\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355\u6216\u6DFB\u52A0\u5230\u671F\u65E5\u671F\u3002\u540C\u6B65\u540E\u4F1A\u5728\u4EFB\u52A1\u540E\u6DFB\u52A0\u94FE\u63A5\uFF0C\u65B9\u4FBF\u8DF3\u8F6C\u5230\u6EF4\u7B54\u6E05\u5355\u67E5\u770B\u8BE6\u60C5\u3002';
-    new import_obsidian8.Setting(containerEl).setName("\u542F\u7528\u539F\u751F\u4EFB\u52A1\u540C\u6B65").setDesc('\u542F\u7528\u540E\u53EF\u4EE5\u624B\u52A8\u540C\u6B65Obsidian\u539F\u751F\u4EFB\u52A1\u683C\u5F0F\u5230\u6EF4\u7B54\u6E05\u5355\uFF0C\u8F93\u5165"- [ ] "\u65F6\u663E\u793A\u64CD\u4F5C\u83DC\u5355').addToggle((t) => t.setValue(this.plugin.settings.enableNativeTaskSync).onChange(async (t2) => {
-      this.plugin.settings.enableNativeTaskSync = t2;
-      await this.plugin.saveSettings();
-    }));
-    containerEl.createEl("h3", { text: "\u65E5\u8BB0\u540C\u6B65\u8BBE\u7F6E" });
-    const dailyInfo = containerEl.createDiv();
-    dailyInfo.style.cssText = "padding: 10px; border-radius: 5px; margin: 10px 0; color: #0066cc;";
-    dailyInfo.innerHTML = "<strong>\u8BF4\u660E\uFF1A</strong>\u65E5\u8BB0\u540C\u6B65\u529F\u80FD\u5141\u8BB8\u4F60\u901A\u8FC7\u547D\u4EE4\u5C06\u4ECA\u5929\u7684\u5F85\u529E\u4EFB\u52A1\u540C\u6B65\u5230\u65E5\u8BB0\u4E2D\u3002";
-    new import_obsidian8.Setting(containerEl).setName("\u76EE\u6807\u8BED\u6CD5\u5757\u6807\u8BC6").setDesc("\u5728\u6B64\u8BBE\u7F6E\u8981\u66F4\u65B0\u7684\u65E5\u8BB0\u5F85\u529E\u4E8B\u9879\u5757\u7684\u6807\u9898(\u5305\u62ECMarkdown\u524D\u7F00)").addText((text) => text.setPlaceholder("\u8F93\u5165\u76EE\u6807\u533A\u5757\u6807\u8BC6").setValue(this.plugin.settings.dailySyncTargetBlockHeader).onChange(async (value) => {
-      this.plugin.settings.dailySyncTargetBlockHeader = value;
-      await this.plugin.saveSettings();
-    }));
-    containerEl.createEl("h3", { text: "\u6570\u636E\u91CD\u7F6E" });
-    const resetInfo = containerEl.createDiv();
-    resetInfo.style.cssText = "padding: 10px; border-radius: 5px; margin: 10px 0; color: #856404; border: 1px solid #ffeaa7;";
-    resetInfo.innerHTML = "<strong>\u26A0\uFE0F \u8B66\u544A\uFF1A</strong>\u6B64\u64CD\u4F5C\u5C06\u5B8C\u5168\u6E05\u7A7A\u672C\u5730\u4EFB\u52A1\u6570\u636E\uFF0C\u5E76\u4ECE\u6EF4\u7B54\u6E05\u5355\u4E91\u7AEF\u91CD\u65B0\u83B7\u53D6\u6700\u65B0\u6570\u636E\u3002\u6B64\u64CD\u4F5C\u4E0D\u53EF\u9006\uFF0C\u5EFA\u8BAE\u5907\u4EFD\u4ED3\u5E93\u540E\u4F7F\u7528\u3002(\u9002\u7528\u4E8EObsidian\u672C\u5730\u4EFB\u52A1\u6570\u636E\u5DF2\u7ECF\u7834\u574F\u3001\u5F02\u5E38\u7B49\u60C5\u51B5\uFF09";
-    new import_obsidian8.Setting(containerEl).setName("\u91CD\u7F6E\u4EFB\u52A1\u6570\u636E").setDesc("\u6E05\u7A7A\u672C\u5730\u4EFB\u52A1\u6570\u636E,\u5E76\u91CD\u65B0\u4ECE\u4E91\u7AEF\u83B7\u53D6\u4EFB\u52A1\u5230\u4F60\u7684Obsidian").addButton((t) => t.setButtonText("\u91CD\u7F6E\u6570\u636E").setWarning().onClick(async () => {
-      if (this.plugin.settings.accessToken) {
-        if (confirm('\u786E\u5B9A\u8981\u91CD\u7F6E\u4EFB\u52A1\u6570\u636E\u5417\uFF1F\n\n\u6B64\u64CD\u4F5C\u5C06\uFF1A\n\u2022 \u5B8C\u5168\u6E05\u7A7A\u672C\u5730\u4EFB\u52A1\u6570\u636E\n\u2022 \u91CD\u65B0\u4ECE\u6EF4\u7B54\u6E05\u5355\u4E91\u7AEF\u83B7\u53D6\u6570\u636E\n\u2022 \u6B64\u64CD\u4F5C\u4E0D\u53EF\u9006\n\n\u70B9\u51FB"\u786E\u5B9A"\u7EE7\u7EED\uFF0C\u70B9\u51FB"\u53D6\u6D88"\u653E\u5F03\u64CD\u4F5C\u3002')) {
-          this.plugin.settings.tasks = [];
-          await this.plugin.saveSettings();
-          await this.plugin.syncManager.syncFromDidaList();
-        }
-      } else {
-        new import_obsidian8.Notice("\u8BF7\u5148\u8FDB\u884COAuth\u8BA4\u8BC1");
-      }
-    }));
   }
-  updateRedirectUriDisplay(port) {
-    this.containerEl.querySelectorAll("code").forEach((e) => {
+  updateRedirectUriDisplay(containerEl, port) {
+    containerEl.querySelectorAll("code").forEach((e) => {
       if (e.textContent && e.textContent.includes("/callback")) {
         e.textContent = `http://localhost:${port}/callback`;
       }
     });
-    this.containerEl.querySelectorAll("button").forEach((btn) => {
+    containerEl.querySelectorAll("button").forEach((btn) => {
       var _a, _b;
       if (btn.textContent === "\u590D\u5236") {
         const parent = btn.closest("div");
@@ -6380,6 +6308,167 @@ var DidaSyncSettingTab = class extends import_obsidian8.PluginSettingTab {
         }
       }
     });
+  }
+};
+
+// src/settings/views/sync-settings-view.ts
+var import_obsidian9 = require("obsidian");
+var SyncSettingsView = class extends AbstractSettingsView {
+  constructor(app, plugin) {
+    super(app, plugin);
+  }
+  render(containerEl) {
+    containerEl.createEl("h3", { text: "\u540C\u6B65\u8BBE\u7F6E" });
+    new import_obsidian9.Setting(containerEl).setName("\u81EA\u52A8\u540C\u6B65").setDesc("\u542F\u7528\u540E\u4F1A\u5B9A\u671F\u4ECE\u6EF4\u7B54\u6E05\u5355\u540C\u6B65\u4EFB\u52A1").addToggle((t) => t.setValue(this.plugin.settings.autoSync).onChange(async (t2) => {
+      this.plugin.settings.autoSync = t2;
+      await this.plugin.saveSettings();
+      this.plugin.syncManager.setupAutoSync();
+    }));
+    new import_obsidian9.Setting(containerEl).setName("\u663E\u793A\u5F52\u6863\u9879\u76EE").setDesc("\u9009\u62E9\u662F\u5426\u5728\u4EFB\u52A1\u6E05\u5355\u4E2D\u663E\u793A\u5DF2\u5F52\u6863\u7684\u9879\u76EE").addDropdown((t) => t.addOption("false", "\u9690\u85CF\u5F52\u6863\u9879\u76EE").addOption("true", "\u663E\u793A\u5F52\u6863\u9879\u76EE").setValue(this.plugin.settings.showArchivedProjects.toString()).onChange(async (t2) => {
+      this.plugin.settings.showArchivedProjects = "true" === t2;
+      await this.plugin.saveSettings();
+      this.plugin.refreshTaskView();
+    }));
+    new import_obsidian9.Setting(containerEl).setName("\u540C\u6B65\u95F4\u9694").setDesc("\u81EA\u52A8\u4ECE\u6EF4\u7B54\u6E05\u5355\u540C\u6B65\u7684\u95F4\u9694\u65F6\u95F4\uFF08\u5206\u949F\uFF09").addSlider((t) => t.setLimits(5, 120, 5).setValue(this.plugin.settings.syncInterval).setDynamicTooltip().onChange(async (t2) => {
+      this.plugin.settings.syncInterval = t2;
+      await this.plugin.saveSettings();
+      this.plugin.syncManager.setupAutoSync();
+    }));
+    new import_obsidian9.Setting(containerEl).setName("\u624B\u52A8\u540C\u6B65").setDesc("\u7ACB\u5373\u6267\u884C\u53CC\u5411\u540C\u6B65").addButton((t) => t.setButtonText("\u5F00\u59CB\u540C\u6B65").onClick(async () => {
+      await this.plugin.manualSync();
+    }));
+    containerEl.createEl("h3", { text: "\u539F\u751F\u4EFB\u52A1\u540C\u6B65\u8BBE\u7F6E" });
+    const nativeInfo = containerEl.createDiv();
+    nativeInfo.style.cssText = "padding: 10px; border-radius: 5px; margin: 10px 0; color: #0066cc;";
+    nativeInfo.innerHTML = '<strong>\u8BF4\u660E\uFF1A</strong>\u539F\u751F\u4EFB\u52A1\u540C\u6B65\u529F\u80FD\u652F\u6301\u624B\u52A8\u540C\u6B65Obsidian\u4E2D\u7684\u539F\u751F\u4EFB\u52A1\u683C\u5F0F\uFF08- [ ] \uFF09\u5230\u6EF4\u7B54\u6E05\u5355\u3002\u542F\u7528\u540E\uFF0C\u8F93\u5165"- [ ] "\u65F6\u4F1A\u5F39\u51FA\u64CD\u4F5C\u83DC\u5355\uFF0C\u53EF\u9009\u62E9\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355\u6216\u6DFB\u52A0\u5230\u671F\u65E5\u671F\u3002\u540C\u6B65\u540E\u4F1A\u5728\u4EFB\u52A1\u540E\u6DFB\u52A0\u94FE\u63A5\uFF0C\u65B9\u4FBF\u8DF3\u8F6C\u5230\u6EF4\u7B54\u6E05\u5355\u67E5\u770B\u8BE6\u60C5\u3002';
+    new import_obsidian9.Setting(containerEl).setName("\u542F\u7528\u539F\u751F\u4EFB\u52A1\u540C\u6B65").setDesc('\u542F\u7528\u540E\u53EF\u4EE5\u624B\u52A8\u540C\u6B65Obsidian\u539F\u751F\u4EFB\u52A1\u683C\u5F0F\u5230\u6EF4\u7B54\u6E05\u5355\uFF0C\u8F93\u5165"- [ ] "\u65F6\u663E\u793A\u64CD\u4F5C\u83DC\u5355').addToggle((t) => t.setValue(this.plugin.settings.enableNativeTaskSync).onChange(async (t2) => {
+      this.plugin.settings.enableNativeTaskSync = t2;
+      await this.plugin.saveSettings();
+    }));
+    containerEl.createEl("h3", { text: "\u65E5\u8BB0\u540C\u6B65\u8BBE\u7F6E" });
+    const dailyInfo = containerEl.createDiv();
+    dailyInfo.style.cssText = "padding: 10px; border-radius: 5px; margin: 10px 0; color: #0066cc;";
+    dailyInfo.innerHTML = "<strong>\u8BF4\u660E\uFF1A</strong>\u65E5\u8BB0\u540C\u6B65\u529F\u80FD\u5141\u8BB8\u4F60\u901A\u8FC7\u547D\u4EE4\u5C06\u4ECA\u5929\u7684\u5F85\u529E\u4EFB\u52A1\u540C\u6B65\u5230\u65E5\u8BB0\u4E2D\u3002";
+    new import_obsidian9.Setting(containerEl).setName("\u76EE\u6807\u8BED\u6CD5\u5757\u6807\u8BC6").setDesc("\u5728\u6B64\u8BBE\u7F6E\u8981\u66F4\u65B0\u7684\u65E5\u8BB0\u5F85\u529E\u4E8B\u9879\u5757\u7684\u6807\u9898(\u5305\u62ECMarkdown\u524D\u7F00)").addText((text) => text.setPlaceholder("\u8F93\u5165\u76EE\u6807\u533A\u5757\u6807\u8BC6").setValue(this.plugin.settings.dailySyncTargetBlockHeader).onChange(async (value) => {
+      this.plugin.settings.dailySyncTargetBlockHeader = value;
+      await this.plugin.saveSettings();
+    }));
+  }
+};
+
+// src/settings/views/ui-settings-view.ts
+var import_obsidian10 = require("obsidian");
+var UISettingsView = class extends AbstractSettingsView {
+  constructor(app, plugin) {
+    super(app, plugin);
+  }
+  render(containerEl) {
+    containerEl.createEl("h3", { text: "\u4E3B\u4EFB\u52A1\u89C6\u56FE\u8BBE\u7F6E" });
+    new import_obsidian10.Setting(containerEl).setName("\u9ED8\u8BA4\u89C6\u56FE\u6A21\u5F0F").setDesc("\u53F3\u4FA7\u8FB9\u680F\u6253\u5F00\u4EFB\u52A1\u6E05\u5355\u65F6\u9ED8\u8BA4\u663E\u793A\u7684\u89C6\u56FE\u7C7B\u578B").addDropdown((t) => t.addOption("task", "\u4EFB\u52A1\u5217\u8868").addOption("timeblock", "\u65F6\u95F4\u6BB5\u89C6\u56FE").setValue(this.plugin.settings.defaultViewMode || "task").onChange(async (t2) => {
+      this.plugin.settings.defaultViewMode = t2;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian10.Setting(containerEl).setName("\u65F6\u95F4\u5757\u6BCF\u5C0F\u65F6\u9AD8\u5EA6").setDesc("\u65F6\u95F4\u6BB5\u89C6\u56FE\u4E2D\u6BCF\u5C0F\u65F6\u7684\u9AD8\u5EA6\uFF08\u50CF\u7D20\uFF09\uFF0C\u8C03\u6574\u540E\u9700\u8981\u5207\u6362\u89C6\u56FE\u624D\u80FD\u751F\u6548").addSlider((t) => t.setLimits(50, 100, 5).setValue(this.plugin.settings.timeBlockHourHeight || 80).setDynamicTooltip().onChange(async (t2) => {
+      this.plugin.settings.timeBlockHourHeight = t2;
+      await this.plugin.saveSettings();
+      document.documentElement.style.setProperty("--dida-hour-height", t2 + "px");
+    }));
+    new import_obsidian10.Setting(containerEl).setName("\u65F6\u95F4\u6BB5\u89C6\u56FE\u8D77\u59CB\u65F6\u95F4").setDesc("\u81EA\u5B9A\u4E49\u8BBE\u7F6E\u65F6\u95F4\u6BB5\u89C6\u56FE\u7684\u8D77\u59CB\u65F6\u95F4\uFF08\u4FDD\u630124\u5C0F\u65F6\u523B\u5EA6\uFF09").addDropdown((e) => {
+      for (let t = 0; t < 24; t++) {
+        var i = t.toString().padStart(2, "0") + ":00";
+        e.addOption(t.toString(), i);
+      }
+      e.setValue((this.plugin.settings.timeBlockStartHour || 0).toString()).onChange(async (t) => {
+        this.plugin.settings.timeBlockStartHour = parseInt(t);
+        await this.plugin.saveSettings();
+        this.plugin.refreshTaskView();
+      });
+    });
+  }
+};
+
+// src/settings/views/advanced-settings-view.ts
+var import_obsidian11 = require("obsidian");
+var AdvancedSettingsView = class extends AbstractSettingsView {
+  constructor(app, plugin) {
+    super(app, plugin);
+  }
+  render(containerEl) {
+    containerEl.createEl("h3", { text: "\u81EA\u52A8\u6E05\u7406\u8BBE\u7F6E" });
+    const cleanInfo = containerEl.createDiv();
+    cleanInfo.style.cssText = "padding: 10px; border-radius: 5px; margin: 10px 0; color: #6c757d;";
+    cleanInfo.innerHTML = "<strong>\u8BF4\u660E\uFF1A</strong>\u542F\u7528\u81EA\u52A8\u6E05\u7406\u529F\u80FD\u540E\uFF0C\u63D2\u4EF6\u4F1A\u5728\u6BCF\u6B21\u542F\u52A8\u65F6\uFF08\u5EF6\u8FDF30\u79D2\uFF09\u81EA\u52A8\u6E05\u7406\u6307\u5B9A\u65F6\u95F4\u4E4B\u524D\u7684\u5DF2\u5B8C\u6210\u4EFB\u52A1\u6570\u636E\uFF0C\u4EE5\u4FDD\u6301\u6570\u636E\u6587\u4EF6\u7684\u6574\u6D01\u3002\u6B64\u64CD\u4F5C\u4EC5\u6E05\u7406\u672C\u5730\u6570\u636E\uFF0C\u4E0D\u4F1A\u5F71\u54CD\u6EF4\u7B54\u6E05\u5355\u4E91\u7AEF\u6570\u636E\u3002";
+    new import_obsidian11.Setting(containerEl).setName("\u81EA\u52A8\u6E05\u7406\u5DF2\u5B8C\u6210\u4EFB\u52A1").setDesc("\u542F\u7528\u540E\u4F1A\u5728\u63D2\u4EF6\u542F\u52A8\u65F6\u81EA\u52A8\u6E05\u7406\u6307\u5B9A\u65F6\u95F4\u4E4B\u524D\u7684\u5DF2\u5B8C\u6210\u4EFB\u52A1\u6570\u636E").addToggle((t) => t.setValue(this.plugin.settings.autoCleanCompletedTasks).onChange(async (t2) => {
+      this.plugin.settings.autoCleanCompletedTasks = t2;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian11.Setting(containerEl).setName("\u6E05\u7406\u95F4\u9694").setDesc("\u81EA\u52A8\u6E05\u7406\u5DF2\u5B8C\u6210\u4EFB\u52A1\u7684\u65F6\u95F4\u95F4\u9694\uFF08\u6708\u6570\uFF09").addDropdown((e) => {
+      for (let t = 1; t <= 12; t++)
+        e.addOption(t.toString(), t + "\u4E2A\u6708");
+      e.setValue(this.plugin.settings.autoCleanInterval.toString()).onChange(async (t) => {
+        this.plugin.settings.autoCleanInterval = parseInt(t);
+        await this.plugin.saveSettings();
+      });
+    });
+    containerEl.createEl("h3", { text: "\u6570\u636E\u91CD\u7F6E" });
+    const resetInfo = containerEl.createDiv();
+    resetInfo.style.cssText = "padding: 10px; border-radius: 5px; margin: 10px 0; color: #856404; border: 1px solid #ffeaa7;";
+    resetInfo.innerHTML = "<strong>\u26A0\uFE0F \u8B66\u544A\uFF1A</strong>\u6B64\u64CD\u4F5C\u5C06\u5B8C\u5168\u6E05\u7A7A\u672C\u5730\u4EFB\u52A1\u6570\u636E\uFF0C\u5E76\u4ECE\u6EF4\u7B54\u6E05\u5355\u4E91\u7AEF\u91CD\u65B0\u83B7\u53D6\u6700\u65B0\u6570\u636E\u3002\u6B64\u64CD\u4F5C\u4E0D\u53EF\u9006\uFF0C\u5EFA\u8BAE\u5907\u4EFD\u4ED3\u5E93\u540E\u4F7F\u7528\u3002(\u9002\u7528\u4E8EObsidian\u672C\u5730\u4EFB\u52A1\u6570\u636E\u5DF2\u7ECF\u7834\u574F\u3001\u5F02\u5E38\u7B49\u60C5\u51B5\uFF09";
+    new import_obsidian11.Setting(containerEl).setName("\u91CD\u7F6E\u4EFB\u52A1\u6570\u636E").setDesc("\u6E05\u7A7A\u672C\u5730\u4EFB\u52A1\u6570\u636E,\u5E76\u91CD\u65B0\u4ECE\u4E91\u7AEF\u83B7\u53D6\u4EFB\u52A1\u5230\u4F60\u7684Obsidian").addButton((t) => t.setButtonText("\u91CD\u7F6E\u6570\u636E").setWarning().onClick(async () => {
+      if (this.plugin.settings.accessToken) {
+        if (confirm('\u786E\u5B9A\u8981\u91CD\u7F6E\u4EFB\u52A1\u6570\u636E\u5417\uFF1F\n\n\u6B64\u64CD\u4F5C\u5C06\uFF1A\n\u2022 \u5B8C\u5168\u6E05\u7A7A\u672C\u5730\u4EFB\u52A1\u6570\u636E\n\u2022 \u91CD\u65B0\u4ECE\u6EF4\u7B54\u6E05\u5355\u4E91\u7AEF\u83B7\u53D6\u6570\u636E\n\u2022 \u6B64\u64CD\u4F5C\u4E0D\u53EF\u9006\n\n\u70B9\u51FB"\u786E\u5B9A"\u7EE7\u7EED\uFF0C\u70B9\u51FB"\u53D6\u6D88"\u653E\u5F03\u64CD\u4F5C\u3002')) {
+          this.plugin.settings.tasks = [];
+          await this.plugin.saveSettings();
+          await this.plugin.syncManager.syncFromDidaList();
+        }
+      } else {
+        new import_obsidian11.Notice("\u8BF7\u5148\u8FDB\u884COAuth\u8BA4\u8BC1");
+      }
+    }));
+  }
+};
+
+// src/settings/DidaSyncSettingTab.ts
+var DidaSyncSettingTab = class extends import_obsidian12.PluginSettingTab {
+  constructor(app, plugin) {
+    super(app, plugin);
+    this.activeTab = "oauth";
+    this.plugin = plugin;
+  }
+  display() {
+    var _a;
+    const { containerEl } = this;
+    containerEl.empty();
+    containerEl.addClass("dida-settings-container");
+    const tabsContainer = containerEl.createDiv({ cls: "dida-settings-tabs" });
+    const contentContainer = containerEl.createDiv({ cls: "dida-settings-content" });
+    const tabs = [
+      { id: "oauth", name: "OAuth \u914D\u7F6E", view: new OAuthSettingsView(this.app, this.plugin) },
+      { id: "sync", name: "\u540C\u6B65\u8BBE\u7F6E", view: new SyncSettingsView(this.app, this.plugin) },
+      { id: "ui", name: "\u89C6\u56FE/\u754C\u9762", view: new UISettingsView(this.app, this.plugin) },
+      { id: "advanced", name: "\u9AD8\u7EA7/\u91CD\u7F6E", view: new AdvancedSettingsView(this.app, this.plugin) }
+    ];
+    tabs.forEach((tab) => {
+      const tabEl = tabsContainer.createDiv({ cls: "dida-settings-tab-item" });
+      if (this.activeTab === tab.id) {
+        tabEl.addClass("active");
+      }
+      tabEl.setText(tab.name);
+      tabEl.onclick = () => {
+        this.activeTab = tab.id;
+        tabsContainer.querySelectorAll(".dida-settings-tab-item").forEach((el) => el.removeClass("active"));
+        tabEl.addClass("active");
+        this.renderContent(contentContainer, tab.view);
+      };
+    });
+    const activeView = (_a = tabs.find((t) => t.id === this.activeTab)) == null ? void 0 : _a.view;
+    if (activeView) {
+      this.renderContent(contentContainer, activeView);
+    }
+  }
+  renderContent(container, view) {
+    container.empty();
+    view.render(container);
   }
 };
 
@@ -6884,7 +6973,7 @@ var TaskActionMenu = class {
 };
 
 // src/main.ts
-var DidaSyncPlugin = class extends import_obsidian9.Plugin {
+var DidaSyncPlugin = class extends import_obsidian13.Plugin {
   constructor() {
     super(...arguments);
     this.currentTaskActionMenu = null;
@@ -6951,14 +7040,14 @@ var DidaSyncPlugin = class extends import_obsidian9.Plugin {
     });
     this.addCommand({
       id: "sync-daily-tasks",
-      name: "Sync Daily Tasks (\u540C\u6B65\u4ECA\u65E5\u4EFB\u52A1\u5230\u65E5\u8BB0)",
+      name: "\u540C\u6B65\u4ECA\u65E5\u4EFB\u52A1\u5230\u65E5\u8BB0",
       callback: () => {
         this.dailyNoteManager.syncTodayTasksToActiveNote();
       }
     });
     this.addCommand({
       id: "insert-create-dida-task",
-      name: "Insert/Create Dida Task (\u63D2\u5165/\u521B\u5EFA\u6EF4\u7B54\u4EFB\u52A1)",
+      name: "\u63D2\u5165/\u521B\u5EFA\u6EF4\u7B54\u4EFB\u52A1",
       editorCallback: (editor) => {
         const cursor = editor.getCursor();
         this.showTaskSuggestions(editor, cursor);
@@ -7075,13 +7164,13 @@ var DidaSyncPlugin = class extends import_obsidian9.Plugin {
       this.settings.tasks = [];
       await this.saveSettings();
       this.refreshTaskView();
-      new import_obsidian9.Notice(`\u5DF2\u6E05\u7A7A ${count} \u4E2A\u672C\u5730\u4EFB\u52A1\u6570\u636E`);
+      new import_obsidian13.Notice(`\u5DF2\u6E05\u7A7A ${count} \u4E2A\u672C\u5730\u4EFB\u52A1\u6570\u636E`);
       setTimeout(async () => {
         try {
-          new import_obsidian9.Notice("\u6B63\u5728\u4ECE\u6EF4\u7B54\u6E05\u5355\u4E91\u7AEF\u83B7\u53D6\u6700\u65B0\u6570\u636E...");
+          new import_obsidian13.Notice("\u6B63\u5728\u4ECE\u6EF4\u7B54\u6E05\u5355\u4E91\u7AEF\u83B7\u53D6\u6700\u65B0\u6570\u636E...");
           await this.syncManager.syncFromDidaList();
           const newCount = this.settings.tasks.length;
-          new import_obsidian9.Notice(`\u91CD\u7F6E\u5B8C\u6210\uFF01\u5DF2\u4ECE\u4E91\u7AEF\u83B7\u53D6 ${newCount} \u4E2A\u4EFB\u52A1\u6570\u636E`);
+          new import_obsidian13.Notice(`\u91CD\u7F6E\u5B8C\u6210\uFF01\u5DF2\u4ECE\u4E91\u7AEF\u83B7\u53D6 ${newCount} \u4E2A\u4EFB\u52A1\u6570\u636E`);
         } catch (e) {
         }
       }, 1e3);
@@ -7205,7 +7294,7 @@ var DidaSyncPlugin = class extends import_obsidian9.Plugin {
   }
   async checkPluginStatusAndNotify() {
     if (!this.settings.accessToken) {
-      new import_obsidian9.Notice("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u914D\u7F6EDida Sync\u63D2\u4EF6");
+      new import_obsidian13.Notice("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u914D\u7F6EDida Sync\u63D2\u4EF6");
       return false;
     }
     return true;
@@ -7302,7 +7391,7 @@ var DidaSyncPlugin = class extends import_obsidian9.Plugin {
     if (this.isPluginActivated) {
       try {
         if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) {
-          new import_obsidian9.Notice("\u5F53\u524D\u5904\u4E8E\u79BB\u7EBF\u72B6\u6001\uFF0C\u65F6\u95F4\u7EBF\u89C6\u56FE\u4E0D\u53EF\u7528");
+          new import_obsidian13.Notice("\u5F53\u524D\u5904\u4E8E\u79BB\u7EBF\u72B6\u6001\uFF0C\u65F6\u95F4\u7EBF\u89C6\u56FE\u4E0D\u53EF\u7528");
           return;
         }
       } catch (e) {
@@ -7839,7 +7928,7 @@ var DidaSyncPlugin = class extends import_obsidian9.Plugin {
             const linkRegex = /\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=([^)]+)\)/;
             const linkMatch = content.match(linkRegex);
             if (linkMatch) {
-              new import_obsidian9.Notice("\u2139\uFE0F \u4EFB\u52A1\u5DF2\u540C\u6B65\uFF0C\u65E0\u9700\u518D\u6B21\u540C\u6B65", 3e3);
+              new import_obsidian13.Notice("\u2139\uFE0F \u4EFB\u52A1\u5DF2\u540C\u6B65\uFF0C\u65E0\u9700\u518D\u6B21\u540C\u6B65", 3e3);
             } else {
               let title = content;
               title = title.replace(/📅\s*\d{4}-\d{2}-\d{2}/g, "").trim();
@@ -7881,21 +7970,21 @@ var DidaSyncPlugin = class extends import_obsidian9.Plugin {
                   };
                   this.settings.tasks.push(task);
                   await this.saveSettings();
-                  new import_obsidian9.Notice("\u2705 \u4EFB\u52A1\u5DF2\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355", 3e3);
+                  new import_obsidian13.Notice("\u2705 \u4EFB\u52A1\u5DF2\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355", 3e3);
                   this.refreshTaskView();
                 } else {
-                  new import_obsidian9.Notice("\u274C \u540C\u6B65\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5");
+                  new import_obsidian13.Notice("\u274C \u540C\u6B65\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5");
                 }
               }
             }
           } else {
-            new import_obsidian9.Notice("\u274C \u4EFB\u52A1\u5185\u5BB9\u4E0D\u80FD\u4E3A\u7A7A");
+            new import_obsidian13.Notice("\u274C \u4EFB\u52A1\u5185\u5BB9\u4E0D\u80FD\u4E3A\u7A7A");
           }
         } else {
-          new import_obsidian9.Notice("\u274C \u65E0\u6CD5\u8BC6\u522B\u4EFB\u52A1\u683C\u5F0F");
+          new import_obsidian13.Notice("\u274C \u65E0\u6CD5\u8BC6\u522B\u4EFB\u52A1\u683C\u5F0F");
         }
       } else {
-        new import_obsidian9.Notice("\u274C \u8BF7\u5148\u8FDB\u884COAuth\u8BA4\u8BC1");
+        new import_obsidian13.Notice("\u274C \u8BF7\u5148\u8FDB\u884COAuth\u8BA4\u8BC1");
       }
     } catch (e) {
       let msg = "\u540C\u6B65\u5931\u8D25";
@@ -7907,7 +7996,7 @@ var DidaSyncPlugin = class extends import_obsidian9.Plugin {
         msg = "\u672A\u627E\u5230";
       else if (e.message)
         msg = "\u540C\u6B65\u5931\u8D25: " + e.message;
-      new import_obsidian9.Notice("\u274C " + msg, 5e3);
+      new import_obsidian13.Notice("\u274C " + msg, 5e3);
     }
   }
   async createTaskDirectly(title) {
@@ -7985,10 +8074,10 @@ var DidaSyncPlugin = class extends import_obsidian9.Plugin {
             this.refreshTaskView();
           }
         } else {
-          new import_obsidian9.Notice("\u8BF7\u5148\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355\uFF0C\u518D\u8BBE\u7F6E\u5230\u671F\u65E5\u671F");
+          new import_obsidian13.Notice("\u8BF7\u5148\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355\uFF0C\u518D\u8BBE\u7F6E\u5230\u671F\u65E5\u671F");
         }
       } else {
-        new import_obsidian9.Notice("\u65E0\u6CD5\u8BC6\u522B\u4EFB\u52A1\u683C\u5F0F");
+        new import_obsidian13.Notice("\u65E0\u6CD5\u8BC6\u522B\u4EFB\u52A1\u683C\u5F0F");
       }
     } catch (e) {
       let msg = "\u6DFB\u52A0\u65E5\u671F\u5931\u8D25";
@@ -8000,7 +8089,7 @@ var DidaSyncPlugin = class extends import_obsidian9.Plugin {
         msg = "\u672A\u627E\u5230";
       else if (e.message)
         msg = "\u6DFB\u52A0\u65E5\u671F\u5931\u8D25: " + e.message;
-      new import_obsidian9.Notice("\u274C " + msg);
+      new import_obsidian13.Notice("\u274C " + msg);
     }
   }
   async handleDateChange(didaId, newDate, newTitle) {
@@ -8061,7 +8150,7 @@ var DidaSyncPlugin = class extends import_obsidian9.Plugin {
         msg = "\u672A\u627E\u5230";
       else if (e.message)
         msg = "\u540C\u6B65\u65E5\u671F\u53D8\u66F4\u5931\u8D25: " + e.message;
-      new import_obsidian9.Notice("\u274C " + msg);
+      new import_obsidian13.Notice("\u274C " + msg);
     }
   }
   async handleTitleChange(didaId, newTitle) {
@@ -8074,7 +8163,7 @@ var DidaSyncPlugin = class extends import_obsidian9.Plugin {
         await this.saveSettings();
         await this.updateTaskInDidaList(task);
         this.refreshTaskView();
-        new import_obsidian9.Notice("\u2705 \u5DF2\u540C\u6B65\u6807\u9898\u53D8\u66F4\u5230\u6EF4\u7B54\u6E05\u5355");
+        new import_obsidian13.Notice("\u2705 \u5DF2\u540C\u6B65\u6807\u9898\u53D8\u66F4\u5230\u6EF4\u7B54\u6E05\u5355");
       }
     } catch (e) {
       let msg = "\u540C\u6B65\u6807\u9898\u53D8\u66F4\u5931\u8D25";
@@ -8086,7 +8175,7 @@ var DidaSyncPlugin = class extends import_obsidian9.Plugin {
         msg = "\u672A\u627E\u5230";
       else if (e.message)
         msg = "\u540C\u6B65\u6807\u9898\u53D8\u66F4\u5931\u8D25: " + e.message;
-      new import_obsidian9.Notice("\u274C " + msg);
+      new import_obsidian13.Notice("\u274C " + msg);
     }
   }
   handleTaskLinkClick(evt) {
@@ -8230,7 +8319,7 @@ var DidaSyncPlugin = class extends import_obsidian9.Plugin {
     }, 100);
   }
   showFileSelectionModal(files, didaId) {
-    const modal = new import_obsidian9.Modal(this.app);
+    const modal = new import_obsidian13.Modal(this.app);
     modal.titleEl.setText("\u9009\u62E9\u5305\u542B\u4EFB\u52A1\u94FE\u63A5\u7684\u6587\u4EF6");
     const container = modal.contentEl.createDiv();
     container.createEl("p", { text: `\u627E\u5230 ${files.length} \u4E2A\u5305\u542B\u4EFB\u52A1\u94FE\u63A5\u7684\u6587\u4EF6:` });
@@ -8278,7 +8367,7 @@ var DidaSyncPlugin = class extends import_obsidian9.Plugin {
         this.showTaskDetailsInView(task);
       });
     } else {
-      new import_obsidian9.Notice("\u8BE5\u4EFB\u52A1\u5DF2\u5B8C\u6210");
+      new import_obsidian13.Notice("\u8BE5\u4EFB\u52A1\u5DF2\u5B8C\u6210");
     }
   }
   showTaskDetailsInViewOptimized(task) {
@@ -8501,7 +8590,7 @@ var DidaSyncPlugin = class extends import_obsidian9.Plugin {
           }
         }
       } else {
-        new import_obsidian9.Notice("\u4EFB\u52A1\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
+        new import_obsidian13.Notice("\u4EFB\u52A1\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
       }
     }
   }
