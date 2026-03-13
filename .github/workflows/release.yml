@@ -1,6 +1,7 @@
 name: Release Obsidian Plugin
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "*"
