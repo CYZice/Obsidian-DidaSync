@@ -381,6 +381,14 @@ export class TaskActionMenu {
         });
         this.menuItems.push(syncOption);
 
+        const searchOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: "🔍 关联/搜索任务" });
+        searchOption.addEventListener("click", (e) => {
+            e.preventDefault(); e.stopPropagation();
+            this.close();
+            this.onAction("search");
+        });
+        this.menuItems.push(searchOption);
+
         const dateOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: "📅 到期日期" });
         dateOption.addEventListener("click", (e) => {
             e.preventDefault(); e.stopPropagation();

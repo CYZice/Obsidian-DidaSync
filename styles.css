@@ -3249,3 +3249,52 @@ label+.dida-project-select {
 .dida-time-block-resize-bottom::before {
     bottom: 2px;
 }
+
+/* Settings Tab Layout */
+.dida-settings-container {
+    display: flex;
+    gap: 20px;
+    height: 100%;
+    min-height: 500px; /* 保证有足够的高度 */
+}
+
+.dida-settings-tabs {
+    width: 150px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--background-modifier-border);
+    padding-right: 10px;
+}
+
+.dida-settings-tab-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    margin-bottom: 4px;
+    color: var(--text-muted);
+    transition: all 0.2s ease;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.dida-settings-tab-item:hover {
+    background-color: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+.dida-settings-tab-item.active {
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.dida-settings-content {
+    flex: 1;
+    overflow-y: auto;
+    padding-bottom: 50px; /* 底部留白 */
+    padding-left: 10px;
+}
+
+/* 调整原来的标题样式，避免重复 */
+.dida-settings-content h3:first-child {
+    margin-top: 0;
+}
+

@@ -1,6 +1,7 @@
 import { Editor, EditorPosition, Modal, Notice, Plugin, TFile } from 'obsidian';
 import { DidaApiClient } from './api/DidaApiClient';
 import { RRuleParser } from './core/RRuleParser';
+import { DailyNoteManager } from './managers/DailyNoteManager';
 import { NativeTaskSyncManager } from './managers/NativeTaskSyncManager';
 import { RepeatTaskManager } from './managers/RepeatTaskManager';
 import { SyncManager } from './managers/SyncManager';
@@ -19,6 +20,7 @@ export default class DidaSyncPlugin extends Plugin {
     syncManager: SyncManager;
     nativeTaskSyncManager: NativeTaskSyncManager;
     repeatTaskManager: RepeatTaskManager;
+    dailyNoteManager: DailyNoteManager;
     currentTaskActionMenu: TaskActionMenu | null = null;
     isTaskActionInProgress: boolean = false;
     isPluginActivated: boolean = false;
@@ -45,6 +47,7 @@ export default class DidaSyncPlugin extends Plugin {
         this.syncManager = new SyncManager(this);
         this.nativeTaskSyncManager = new NativeTaskSyncManager(this);
         this.repeatTaskManager = new RepeatTaskManager(this);
+        this.dailyNoteManager = new DailyNoteManager(this.app, this);
 
         this.addSettingTab(new DidaSyncSettingTab(this.app, this));
 
@@ -87,6 +90,23 @@ export default class DidaSyncPlugin extends Plugin {
             name: '显示时间线日历视图',
             callback: () => {
                 this.showTimelineView();
+            }
+        });
+
+        this.addCommand({
+            id: 'sync-daily-tasks',
+            name: '同步今日任务到日记',
+            callback: () => {
+                this.dailyNoteManager.syncTodayTasksToActiveNote();
+            }
+        });
+
+        this.addCommand({
+            id: 'insert-create-dida-task',
+            name: '插入/创建滴答任务',
+            editorCallback: (editor: Editor) => {
+                const cursor = editor.getCursor();
+                this.showTaskSuggestions(editor, cursor);
             }
         });
 
@@ -758,11 +778,15 @@ export default class DidaSyncPlugin extends Plugin {
         } catch (e) { }
     }
 
-    showTaskSuggestions(editor: Editor, cursor: EditorPosition) {
+    showTaskSuggestions(editor: Editor, cursor: EditorPosition, onSelect?: (task: DidaTask) => void) {
         try {
             let activeView: any;
             const popup = new TaskSuggestionPopup(this.app, this, editor, cursor, (task) => {
-                this.insertTaskLink(editor, cursor, task);
+                if (onSelect) {
+                    onSelect(task);
+                } else {
+                    this.insertTaskLink(editor, cursor, task);
+                }
             });
             let editorDom: HTMLElement | null = null;
             if ((editor as any).cm && (editor as any).cm.dom) editorDom = (editor as any).cm.dom;
@@ -865,11 +889,43 @@ export default class DidaSyncPlugin extends Plugin {
 
     insertTaskLink(editor: Editor, cursor: EditorPosition, task: DidaTask) {
         const line = editor.getLine(cursor.line);
-        const before = line.substring(0, cursor.ch - 2);
+        let before = line.substring(0, cursor.ch);
+
+        // Check if triggered by @@
+        if (before.endsWith("@@")) {
+            before = before.substring(0, cursor.ch - 2);
+        }
+
         const after = line.substring(cursor.ch);
         const linkText = `[@@${task.title || "无标题任务"}](obsidian://dida-task?didaId=${task.didaId})`;
         editor.setLine(cursor.line, before + linkText + after);
         editor.setCursor({ line: cursor.line, ch: before.length + linkText.length });
+    }
+
+    linkTaskToLine(editor: Editor, cursor: EditorPosition, task: DidaTask) {
+        const line = editor.getLine(cursor.line);
+        const linkRegex = /\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=[^)]+\)/;
+        const newLink = `[🔗Dida](obsidian://dida-task?didaId=${task.didaId})`;
+
+        if (linkRegex.test(line)) {
+            const newLine = line.replace(linkRegex, newLink);
+            editor.setLine(cursor.line, newLine);
+        } else {
+            const match = line.match(/^(\s*)-\s\[[ x]\]\s*(.*)$/);
+            if (match) {
+                const content = match[2].trim();
+                if (!content) {
+                    const newLine = `${match[1]}- [ ] ${task.title} ${newLink}`;
+                    editor.setLine(cursor.line, newLine);
+                } else {
+                    const newLine = line.trimEnd() + " " + newLink;
+                    editor.setLine(cursor.line, newLine);
+                }
+            } else {
+                const newLine = line.trimEnd() + " " + newLink;
+                editor.setLine(cursor.line, newLine);
+            }
+        }
     }
 
     showTaskActionMenu(editor: Editor, cursor: EditorPosition) {
@@ -896,6 +952,10 @@ export default class DidaSyncPlugin extends Plugin {
                 await this.syncTaskToDidaList(editor, cursor, line);
             } else if (action === "date") {
                 this.addDateToTask(editor, cursor, line, data.date);
+            } else if (action === "search") {
+                this.showTaskSuggestions(editor, cursor, (task) => {
+                    this.linkTaskToLine(editor, cursor, task);
+                });
             }
             setTimeout(() => {
                 this.isTaskActionInProgress = false;
