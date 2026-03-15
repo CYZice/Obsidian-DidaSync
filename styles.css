@@ -3098,16 +3098,13 @@ label+.dida-project-select {
     color: purple;
     /* 具体背景色由不同列的选择器控制，移除左右外边距避免横向滚动 */
     transition: z-index 0s, height 0.2s ease, box-shadow 0.2s ease;
-    min-height: 40px;
+    min-height: max-content;
     /* Ensure minimum height for visibility */
 }
 
 /* 时间块视图：任务块悬停时层级更高，避免重叠遮挡 */
 .dida-time-block-task:hover {
     z-index: 50;
-    height: auto !important;
-    min-height: fit-content;
-    overflow: visible;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
@@ -3148,9 +3145,8 @@ label+.dida-project-select {
 .dida-time-block-task-title {
     font-size: 10px;
     pointer-events: auto;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    word-break: break-all;
     padding-top: 3px;
     color: rgb(76, 79, 105);
 }
