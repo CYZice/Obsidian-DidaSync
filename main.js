@@ -1741,20 +1741,11 @@ var DatePickerModal = class {
       const target = e.target;
       if (target.tagName === "SELECT" || target.closest("select"))
         return;
+      if (this.closeDropdownsHandler) {
+        this.closeDropdownsHandler(e);
+      }
       e.stopPropagation();
     };
-    this.container.addEventListener("mousedown", (e) => {
-      const target = e.target;
-      if (target.tagName === "SELECT" || target.closest("select"))
-        return;
-      e.stopPropagation();
-    }, true);
-    this.container.addEventListener("click", (e) => {
-      const target = e.target;
-      if (target.tagName === "SELECT" || target.closest("select"))
-        return;
-      e.stopPropagation();
-    }, true);
     this.escapeHandler = (e) => {
       if (e.key === "Escape")
         this.close();
