@@ -865,6 +865,7 @@ export class TaskView extends ItemView {
             const item = grid.createDiv("dida-time-block-item dida-time-block-all-day");
             item.setAttribute("data-task-id", task.id);
             item.setAttribute("draggable", "true");
+            item.style.backgroundColor = this.getTaskColor(task);
 
             item.addEventListener("dragstart", (e) => {
                 const target = e.target as HTMLElement;
@@ -902,15 +903,26 @@ export class TaskView extends ItemView {
             this.renderTaskTitleContent(titleSpan, task.title || "");
 
             // Edit title logic
-            titleSpan.contentEditable = "true";
+            titleSpan.contentEditable = "false";
             titleSpan.style.outline = "none";
-            titleSpan.style.cursor = "text";
             titleSpan.style.wordBreak = "break-word";
+            titleSpan.style.cursor = "pointer";
 
             let originalTitle = task.title;
 
+            titleSpan.onclick = (e) => {
+                e.stopPropagation();
+                if (titleSpan.contentEditable !== "true") {
+                    titleSpan.contentEditable = "true";
+                    titleSpan.style.cursor = "text";
+                    titleSpan.focus();
+                }
+            };
+
             titleSpan.onfocus = () => { originalTitle = titleSpan.textContent; };
             titleSpan.onblur = async () => {
+                titleSpan.contentEditable = "false";
+                titleSpan.style.cursor = "pointer";
                 const newTitle = titleSpan.textContent?.trim();
                 if (newTitle && newTitle !== originalTitle) {
                     const idx = this.plugin.settings.tasks.findIndex(t => task.didaId ? t.didaId === task.didaId : t.id === task.id);
@@ -938,6 +950,52 @@ export class TaskView extends ItemView {
                 if (e.key === "Enter") {
                     e.preventDefault();
                     titleSpan.blur();
+                }
+            };
+
+            // Due Date
+            const dateSpan = item.createEl("span", {
+                cls: "dida-task-due-date"
+            });
+            dateSpan.style.marginLeft = "auto";
+            dateSpan.style.marginRight = "10px";
+
+            if (task.startDate) {
+                try {
+                    const date = new Date(task.startDate);
+                    const month = date.getMonth() + 1;
+                    const day = date.getDate();
+                    dateSpan.textContent = `${month}/${day}`;
+
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    date.setHours(0, 0, 0, 0);
+
+                    if (date < today) dateSpan.classList.add("overdue");
+                    else if (date.getTime() === today.getTime()) dateSpan.classList.add("today");
+                } catch (e) {
+                    dateSpan.textContent = "";
+                }
+            } else {
+                dateSpan.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#da1b1b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar-x2-icon lucide-calendar-x-2"><path d="M8 2v4"/><path d="M16 2v4"/><path d="M21 13V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8"/><path d="M3 10h18"/><path d="m17 22 5-5"/><path d="m17 17 5 5"/></svg>';
+                dateSpan.classList.add("no-date");
+            }
+
+            dateSpan.style.cursor = "pointer";
+            dateSpan.title = "点击设置时间";
+            dateSpan.onclick = (e) => {
+                e.stopPropagation();
+                const idx = this.plugin.settings.tasks.findIndex(t => task.didaId ? t.didaId === task.didaId : t.id === task.id);
+                if (idx !== -1) {
+                    const date = task.startDate || task.dueDate || this.selectedDate;
+                    new DatePickerModal(this.app, date, async (d, isAllDay, endDate) => {
+                        if (d) {
+                            await this.updateTaskStartDate(idx, d, isAllDay);
+                            if (endDate && !isAllDay) {
+                                await this.updateTaskDueDate(idx, endDate, false);
+                            }
+                        }
+                    }, e.currentTarget as HTMLElement, this.plugin, idx).open();
                 }
             };
 
@@ -982,21 +1040,21 @@ export class TaskView extends ItemView {
     async handleTaskTimeRescheduling(taskId: string, newStartDate: Date, newEndDate: Date) {
         const idx = this.plugin.settings.tasks.findIndex(t => t.id === taskId || t.didaId === taskId);
         if (idx === -1) return;
-        
+
         const task = this.plugin.settings.tasks[idx];
-        
+
         task.isAllDay = false;
         task.startDate = newStartDate.toISOString();
         task.dueDate = newEndDate.toISOString();
         task.updatedAt = new Date().toISOString();
-        task.status = 0; 
-        
+        task.status = 0;
+
         await this.plugin.saveSettings();
-        
+
         if (this.plugin.settings.accessToken && task.didaId) {
             this.plugin.updateTaskInDidaList(task).catch(console.error);
         }
-        
+
         this.renderTaskList();
     }
 
