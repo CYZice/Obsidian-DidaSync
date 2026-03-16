@@ -864,6 +864,24 @@ export class TaskView extends ItemView {
         tasks.forEach(task => {
             const item = grid.createDiv("dida-time-block-item dida-time-block-all-day");
             item.setAttribute("data-task-id", task.id);
+            item.setAttribute("draggable", "true");
+
+            item.addEventListener("dragstart", (e) => {
+                const target = e.target as HTMLElement;
+                if (target && target.isContentEditable) {
+                    e.preventDefault();
+                    return;
+                }
+                if (e.dataTransfer) {
+                    e.dataTransfer.setData("text/plain", task.id);
+                    e.dataTransfer.effectAllowed = "move";
+                }
+                item.classList.add("dragging");
+            });
+
+            item.addEventListener("dragend", () => {
+                item.classList.remove("dragging");
+            });
 
             const checkbox = item.createEl("input", { type: "checkbox" });
             checkbox.checked = task.status === 2;
@@ -954,6 +972,34 @@ export class TaskView extends ItemView {
         });
     }
 
+    calculateMinutesFromY(clientY: number, gridRect: DOMRect, startHour: number = 0): number {
+        const topY = Math.max(gridRect.top, Math.min(gridRect.bottom, clientY));
+        const relativeTop = topY - gridRect.top;
+        const topPct = (relativeTop / gridRect.height) * 100;
+        return Math.round((topPct / 100) * 1440 + (startHour * 60));
+    }
+
+    async handleTaskTimeRescheduling(taskId: string, newStartDate: Date, newEndDate: Date) {
+        const idx = this.plugin.settings.tasks.findIndex(t => t.id === taskId || t.didaId === taskId);
+        if (idx === -1) return;
+        
+        const task = this.plugin.settings.tasks[idx];
+        
+        task.isAllDay = false;
+        task.startDate = newStartDate.toISOString();
+        task.dueDate = newEndDate.toISOString();
+        task.updatedAt = new Date().toISOString();
+        task.status = 0; 
+        
+        await this.plugin.saveSettings();
+        
+        if (this.plugin.settings.accessToken && task.didaId) {
+            this.plugin.updateTaskInDidaList(task).catch(console.error);
+        }
+        
+        this.renderTaskList();
+    }
+
     renderTimeGrid(container: HTMLElement, tasks: any[]) {
         const timeSection = container.createDiv("dida-time-block-time-section");
         const grid = timeSection.createDiv("dida-time-block-time-grid");
@@ -983,6 +1029,37 @@ export class TaskView extends ItemView {
             const line = grid.createDiv("dida-time-block-now-line");
             line.style.top = topPercent + "%";
         }
+
+        // Handle Drag and Drop for scheduling "All Day" tasks
+        grid.addEventListener("dragover", (e) => {
+            e.preventDefault(); // allow drop
+            if (e.dataTransfer) {
+                e.dataTransfer.dropEffect = "move";
+            }
+        });
+
+        grid.addEventListener("drop", async (e) => {
+            e.preventDefault();
+            const taskId = e.dataTransfer?.getData("text/plain");
+            if (!taskId) return;
+
+            const rect = grid.getBoundingClientRect();
+            const startMins = this.calculateMinutesFromY(e.clientY, rect, startHour);
+            const endMins = startMins + 60; // Default 1 hour duration
+
+            const startH = Math.floor(startMins / 60) % 24;
+            const startM = startMins % 60;
+            const endH = Math.floor(endMins / 60) % 24;
+            const endM = endMins % 60;
+
+            const sDate = new Date(this.selectedDate!);
+            sDate.setHours(startH, startM, 0, 0);
+
+            const eDate = new Date(this.selectedDate!);
+            eDate.setHours(endH, endM, 0, 0);
+
+            await this.handleTaskTimeRescheduling(taskId, sDate, eDate);
+        });
 
         // Mouse events for creating tasks
         grid.addEventListener("mousedown", (e) => {

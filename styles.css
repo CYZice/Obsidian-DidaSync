@@ -2989,13 +2989,54 @@ label+.dida-project-select {
     overflow: visible;
 }
 
-/* 全天任务块网格 */
+/* 全天任务块网格 - 优化版 */
 
 .dida-time-block-all-day-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 3px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
     max-width: 100%;
+    max-height: 120px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+/* 拖拽手柄样式 */
+.dida-drag-handle {
+    cursor: grab;
+    padding: 0 4px;
+    color: var(--text-muted);
+    opacity: 0.5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.dida-drag-handle:hover {
+    opacity: 1;
+    color: var(--text-normal);
+}
+
+.dida-drag-handle:active {
+    cursor: grabbing;
+}
+
+/* 拖拽预览占位块 (Snap-to-Grid) */
+.dida-time-block-drag-preview {
+    position: absolute;
+    left: 45px; /* 对齐时间轴的缩进 */
+    width: calc(100% - 55px);
+    background-color: var(--interactive-accent-hover);
+    border: 1px dashed var(--interactive-accent);
+    border-radius: 4px;
+    pointer-events: none; /* 让鼠标穿透，否则会影响 dragover 监听 */
+    z-index: 999;
+    display: flex;
+    align-items: center;
+    padding-left: 8px;
+    color: var(--text-normal);
+    font-size: 12px;
+    opacity: 0.8;
 }
 
 .dida-time-block-item {
@@ -3006,12 +3047,19 @@ label+.dida-project-select {
     align-items: center;
     gap: 8px;
     transition: all 0.2s ease;
-    cursor: pointer;
 }
 
 
 .dida-time-block-all-day {
     min-height: 28px;
+    cursor: grab;
+}
+
+.dida-time-block-all-day.dragging {
+    opacity: 0.5;
+    cursor: grabbing;
+    background-color: var(--background-modifier-hover);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .dida-time-block-item input[type="checkbox"] {
