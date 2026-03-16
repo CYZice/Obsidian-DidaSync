@@ -64,7 +64,9 @@ Obsidian-DidaSync ensures your tasks are always up-to-date, whether you're in Ob
 |---------|-------------|
 | 🔄 **Two-way Sync** | Synchronize task status, content, and details between Obsidian and TickTick/Dida365 |
 | 🗓️ **Visual Views** | Multiple views including Time Block, Timeline, and Sidebar Task List |
-| 📝 **Daily Note Integration** | Automatically sync today's tasks directly into your daily notes |
+| �️ **Interactive Drag & Drop Scheduling** | Time block view supports smooth drag-and-drop scheduling for all-day tasks, prevents accidental edits, and allows clicking date badges for quick calendar rescheduling |
+| 🔁 **Repeat Task Support** | Perfectly syncs and manages complex repeating tasks from TickTick (supports display and checking off recurring rules) |
+| �📝 **Daily Note Integration** | Automatically sync today's tasks directly into your daily notes |
 | ⚡ **Quick Commands** | Add tasks to specific projects or insert task suggestions with simple hotkeys |
 | 🕒 **Auto-Sync** | Configurable background synchronization to keep everything in sync |
 | 🎛️ **Project Management** | View and manage tasks grouped by your TickTick/Dida365 projects |
@@ -73,7 +75,7 @@ Obsidian-DidaSync ensures your tasks are always up-to-date, whether you're in Ob
 
 1. Open **Obsidian Settings** → **Community Plugins** → **Browse** → Search **"Obsidian-DidaSync"**
 2. Install and enable the plugin
-3. Configure your API key or use OAuth in the plugin settings to connect your TickTick/Dida365 account
+3. Use secure and convenient OAuth authorization in the plugin settings to connect your TickTick/Dida365 account with one click (no tedious API Key configuration required)
 4. Open the sidebar or use the ribbon icons to start syncing your tasks!
 
 ## Installation
