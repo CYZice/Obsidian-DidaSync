@@ -104,7 +104,9 @@ var DEFAULT_SETTINGS = {
   projectOrder: [],
   defaultViewMode: "task",
   timeBlockHourHeight: 80,
-  timeBlockStartHour: 0
+  timeBlockStartHour: 0,
+  reverseCompletionMeta: {},
+  syncConsistencyMeta: {}
 };
 var OAUTH_CONFIG = {
   authUrl: "https://dida365.com/oauth/authorize",
@@ -2341,6 +2343,7 @@ var TaskView = class extends import_obsidian4.ItemView {
             this.renderTaskTitleContent(titleSpan, task.title || "");
             titleSpan.onclick = () => this.toggleTaskDetails(taskItem, task);
             this.updateTaskRowRepeatRule(taskItem, task);
+            this._enableTaskDragToMarkdown(taskItem, task);
             let reminderInfo = "";
             try {
               if (task.isAllDay) {
@@ -4143,13 +4146,125 @@ var TaskView = class extends import_obsidian4.ItemView {
       existing.remove();
     }
   }
+  // ==================== Drag Task to Markdown ====================
+  _enableTaskDragToMarkdown(element, task) {
+    if (!element || !task)
+      return;
+    if (!task.didaId)
+      return;
+    if (element.dataset && element.dataset.didaDragBound === "1")
+      return;
+    element.setAttribute("draggable", "true");
+    if (element.dataset)
+      element.dataset.didaDragBound = "1";
+    element.addEventListener("dragstart", (e) => {
+      this._beginSidebarTaskDragMenuSuppression();
+      try {
+        const payload = this._buildDidaTaskDragPayload(task);
+        if (payload && e.dataTransfer) {
+          e.dataTransfer.setData("text/plain", payload);
+          e.dataTransfer.effectAllowed = "copy";
+          element.classList.add("dida-task-dragging");
+          e.stopPropagation();
+        }
+      } catch (err) {
+      }
+    });
+    element.addEventListener("dragend", () => {
+      element.classList.remove("dida-task-dragging");
+      this._scheduleEndSidebarTaskDragMenuSuppression();
+      setTimeout(() => {
+        this._collapseActiveMarkdownEditorSelectionAfterSidebarTaskDrop();
+      }, 0);
+    });
+  }
+  _buildDidaTaskDragPayload(task) {
+    if (!task || !task.didaId)
+      return "";
+    const lines = [];
+    const mainLine = this._formatDidaTaskLineForDrag(task, "");
+    if (!mainLine)
+      return "";
+    lines.push(mainLine);
+    const childIds = /* @__PURE__ */ new Set();
+    if (task.didaId)
+      childIds.add(task.didaId);
+    if (task.id && task.id !== task.didaId)
+      childIds.add(task.id);
+    const tasks = this.plugin.settings.tasks || [];
+    for (const child of tasks) {
+      if (child && child.parentId && childIds.has(child.parentId) && child.didaId) {
+        const childLine = this._formatDidaTaskLineForDrag(child, "	");
+        if (childLine)
+          lines.push(childLine);
+      }
+    }
+    return lines.join("\n");
+  }
+  _formatDidaTaskLineForDrag(task, indent) {
+    if (!task || !task.didaId)
+      return "";
+    const checkbox = task.status === 2 ? "[x]" : "[ ]";
+    const title = (task.title || "").replace(/\r?\n/g, " ").trim() || "\u65E0\u6807\u9898\u4EFB\u52A1";
+    const dateStr = this._formatDidaTaskDueDateForDrag(task);
+    return `${indent}- ${checkbox} ${title} [\u{1F517}Dida](obsidian://dida-task?didaId=${task.didaId})${dateStr}`;
+  }
+  _formatDidaTaskDueDateForDrag(task) {
+    const dateValue = task && (task.dueDate || task.startDate) || null;
+    if (!dateValue)
+      return "";
+    try {
+      const date = new Date(dateValue);
+      if (isNaN(date.getTime()))
+        return "";
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, "0");
+      const d = String(date.getDate()).padStart(2, "0");
+      return ` \u{1F4C5} ${y}-${m}-${d}`;
+    } catch (e) {
+      return "";
+    }
+  }
+  _beginSidebarTaskDragMenuSuppression() {
+  }
+  _scheduleEndSidebarTaskDragMenuSuppression() {
+  }
+  _collapseActiveMarkdownEditorSelectionAfterSidebarTaskDrop() {
+    try {
+      const leaves = this.plugin.app.workspace.getLeavesOfType("markdown");
+      for (const leaf of leaves) {
+        const view = leaf.view;
+        if (view && view.editor) {
+          const editor = view.editor;
+          if (editor && editor.cm && editor.cm.doc) {
+            const sel = editor.cm.doc.selection;
+            if (!sel.empty()) {
+              editor.cm.dispatch({
+                selection: { anchor: sel.anchor },
+                scrollIntoView: true
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+    }
+  }
 };
 
 // src/managers/SyncManager.ts
+var REVERSE_COMPLETION_MISSING_THRESHOLD = 3;
+var REVERSE_COMPLETION_MAX_VERIFY_PER_SYNC = 20;
+var REVERSE_COMPLETION_FOLLOWUP_DELAY_MS = 2e3;
+var REVERSE_COMPLETION_MAX_FOLLOWUP_PASSES = 6;
 var SyncManager = class {
   constructor(plugin) {
     this.syncIntervalId = null;
     this.isSyncing = false;
+    this._reverseCompletionFollowUpInProgress = false;
+    this._reverseCompletionFollowUpTimer = null;
+    this._syncConsistencyFollowUpInProgress = false;
+    this._syncConsistencyFollowUpTimer = null;
     this.plugin = plugin;
   }
   async initializeSync() {
@@ -4549,6 +4664,8 @@ var SyncManager = class {
         this.plugin.updateStatusBar("\u5DF2\u8FDE\u63A5");
         this.plugin.refreshTaskView();
       }
+      this._scheduleReverseCompletionFollowUp();
+      this._scheduleSyncConsistencyFollowUp();
     } catch (e) {
       this.plugin.updateStatusBar("\u540C\u6B65\u5931\u8D25");
     } finally {
@@ -4930,6 +5047,351 @@ var SyncManager = class {
         }
       } catch (e) {
         throw e;
+      }
+    }
+  }
+  // ==================== Reverse Completion Verification ====================
+  _getReverseCompletionMeta(didaId) {
+    if (!this.plugin.settings.reverseCompletionMeta || typeof this.plugin.settings.reverseCompletionMeta !== "object") {
+      this.plugin.settings.reverseCompletionMeta = {};
+    }
+    let meta = this.plugin.settings.reverseCompletionMeta[didaId];
+    if (!meta) {
+      meta = { missingStreak: 0, lastSeenAt: null, lastMissingAt: null };
+      this.plugin.settings.reverseCompletionMeta[didaId] = meta;
+    }
+    return meta;
+  }
+  _refreshReverseCompletionSeenMeta(tasks) {
+    if (!Array.isArray(tasks) || tasks.length === 0)
+      return;
+    const now = new Date().toISOString();
+    for (const task of tasks) {
+      if (task && task.id) {
+        const meta = this._getReverseCompletionMeta(task.id);
+        meta.lastSeenAt = now;
+        meta.missingStreak = 0;
+      }
+    }
+  }
+  async _verifySingleDidaTaskStatus(projectId, didaId) {
+    if (!didaId)
+      return { kind: "uncertain" };
+    const url = `https://api.dida365.com/open/v1/project/${projectId}/task/${didaId}`;
+    try {
+      const res = await this.plugin.apiClient.makeAuthenticatedRequest(url);
+      if (res.status === 404)
+        return { kind: "not_found" };
+      if (res.ok) {
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (e) {
+          data = null;
+        }
+        return data && typeof data === "object" ? data.status === 2 ? { kind: "completed", data } : { kind: "still_active", data } : { kind: "uncertain" };
+      }
+      return { kind: "uncertain", httpStatus: res.status };
+    } catch (e) {
+      return { kind: "uncertain", error: e };
+    }
+  }
+  async _decideReverseCompletion(task, context) {
+    if (context && context.decisionCache && context.decisionCache.has(task.didaId)) {
+      return context.decisionCache.get(task.didaId);
+    }
+    const meta = this._getReverseCompletionMeta(task.didaId);
+    const updateMeta = (result2) => {
+      if (context && context.decisionCache && context.decisionCache.has(task.didaId)) {
+        context.decisionCache.set(task.didaId, result2);
+      }
+      return result2;
+    };
+    meta.missingStreak = (meta.missingStreak || 0) + 1;
+    meta.lastMissingAt = new Date().toISOString();
+    if (meta.missingStreak < REVERSE_COMPLETION_MISSING_THRESHOLD)
+      return updateMeta(false);
+    const budget = context && context.verifyBudget;
+    if (!budget || budget.value <= 0)
+      return updateMeta(false);
+    budget.value--;
+    const result = await this._verifySingleDidaTaskStatus(task.projectId, task.didaId);
+    switch (result.kind) {
+      case "completed":
+      case "not_found":
+        return updateMeta(true);
+      case "still_active":
+        meta.missingStreak = 0;
+        return updateMeta(false);
+      default:
+        return updateMeta(false);
+    }
+  }
+  _collectReverseCompletionCandidates() {
+    const meta = this.plugin.settings && this.plugin.settings.reverseCompletionMeta;
+    if (!meta || typeof meta !== "object" || Object.keys(meta).length === 0)
+      return [];
+    const taskMap = /* @__PURE__ */ new Map();
+    for (const task of this.plugin.settings.tasks) {
+      if (task && task.didaId)
+        taskMap.set(task.didaId, task);
+    }
+    const candidates = [];
+    for (const didaId of Object.keys(meta)) {
+      const m = meta[didaId];
+      if (!m || typeof m !== "object")
+        continue;
+      const missingStreak = m.missingStreak || 0;
+      if (missingStreak < 1 || missingStreak >= REVERSE_COMPLETION_MISSING_THRESHOLD)
+        continue;
+      const task = taskMap.get(didaId);
+      if (task && task.status !== 2) {
+        candidates.push({ didaId, projectId: task.projectId });
+      }
+    }
+    return candidates;
+  }
+  async _runReverseCompletionFollowUpPass(tasks, verifyBudget, pass) {
+    const toRetry = [];
+    const toConfirm = [];
+    for (const task of tasks) {
+      if (verifyBudget.value <= 0) {
+        toRetry.push(task);
+        continue;
+      }
+      const localTask = this.plugin.settings.tasks.find((t) => t && t.didaId === task.didaId);
+      if (localTask && localTask.status !== 2) {
+        verifyBudget.value--;
+        let result = { kind: "uncertain" };
+        try {
+          result = await this._verifySingleDidaTaskStatus(task.projectId, task.didaId);
+        } catch (e) {
+          result = { kind: "uncertain", error: e };
+        }
+        const meta = this._getReverseCompletionMeta(task.didaId);
+        switch (result.kind) {
+          case "still_active":
+            meta.missingStreak = 0;
+            meta.lastSeenAt = new Date().toISOString();
+            break;
+          case "completed":
+          case "not_found":
+            meta.missingStreak = (meta.missingStreak || 0) + 1;
+            meta.lastMissingAt = new Date().toISOString();
+            if (meta.missingStreak >= REVERSE_COMPLETION_MISSING_THRESHOLD) {
+              toConfirm.push(task);
+            } else {
+              toRetry.push(task);
+            }
+            break;
+          default:
+            toRetry.push(task);
+        }
+      }
+    }
+    if (toConfirm.length > 0) {
+      await this._confirmReverseCompletionTasks(toConfirm);
+    }
+    return toRetry;
+  }
+  async _confirmReverseCompletionTasks(tasks) {
+    for (const task of tasks) {
+      const localTask = this.plugin.settings.tasks.find((t) => t && t.didaId === task.didaId);
+      if (localTask && localTask.status !== 2) {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, "0");
+        const d = String(now.getDate()).padStart(2, "0");
+        const h = String(now.getHours()).padStart(2, "0");
+        const min = String(now.getMinutes()).padStart(2, "0");
+        const s = String(now.getSeconds()).padStart(2, "0");
+        const offset = now.getTimezoneOffset();
+        const oh = Math.abs(Math.floor(offset / 60));
+        const om = Math.abs(offset % 60);
+        const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
+        localTask.status = 2;
+        if (!localTask.parentId) {
+          localTask.completedTime = `${y}-${m}-${d}T${h}:${min}:${s}${tz}`;
+        }
+        localTask.updatedAt = new Date().toISOString();
+        await this.plugin.saveSettings();
+      }
+    }
+    if (tasks.length > 0) {
+      this.plugin.refreshTaskView();
+    }
+  }
+  _scheduleReverseCompletionFollowUp() {
+    if (this._reverseCompletionFollowUpInProgress)
+      return;
+    const candidates = this._collectReverseCompletionCandidates();
+    if (!candidates || candidates.length === 0)
+      return;
+    if (this._reverseCompletionFollowUpTimer) {
+      clearTimeout(this._reverseCompletionFollowUpTimer);
+      this._reverseCompletionFollowUpTimer = null;
+    }
+    let pass = 0;
+    const tasks = candidates.slice();
+    const verifyBudget = { value: REVERSE_COMPLETION_MAX_VERIFY_PER_SYNC };
+    const runPass = async () => {
+      if (!this._isPluginAliveForFollowUp())
+        return;
+      this._reverseCompletionFollowUpTimer = null;
+      this._reverseCompletionFollowUpInProgress = true;
+      try {
+        pass++;
+        tasks.slice();
+        const remaining = await this._runReverseCompletionFollowUpPass(tasks, verifyBudget, pass);
+        tasks.length = 0;
+        tasks.push(...remaining);
+      } catch (e) {
+      } finally {
+        this._reverseCompletionFollowUpInProgress = false;
+      }
+      if (this._isPluginAliveForFollowUp() && tasks.length > 0 && pass < REVERSE_COMPLETION_MAX_FOLLOWUP_PASSES) {
+        this._reverseCompletionFollowUpTimer = window.setTimeout(runPass, REVERSE_COMPLETION_FOLLOWUP_DELAY_MS);
+      }
+    };
+    this._reverseCompletionFollowUpTimer = window.setTimeout(runPass, REVERSE_COMPLETION_FOLLOWUP_DELAY_MS);
+  }
+  _isPluginAliveForFollowUp() {
+    return !!(this && this.plugin && this.plugin.settings && Array.isArray(this.plugin.settings.tasks));
+  }
+  // ==================== Sync Consistency Follow-up ====================
+  _scheduleSyncConsistencyFollowUp() {
+    if (this._syncConsistencyFollowUpInProgress)
+      return;
+    const meta = this.plugin.settings && this.plugin.settings.syncConsistencyMeta;
+    if (!meta || Object.keys(meta).length === 0)
+      return;
+    if (this._syncConsistencyFollowUpTimer) {
+      clearTimeout(this._syncConsistencyFollowUpTimer);
+      this._syncConsistencyFollowUpTimer = null;
+    }
+    const verifyBudget = { value: 20 };
+    const runPass = async () => {
+      if (!this._isPluginAliveForFollowUp())
+        return;
+      this._syncConsistencyFollowUpTimer = null;
+      this._syncConsistencyFollowUpInProgress = true;
+      try {
+        await this._runSyncConsistencyFollowUpPass(verifyBudget);
+      } catch (e) {
+      } finally {
+        this._syncConsistencyFollowUpInProgress = false;
+      }
+    };
+    this._syncConsistencyFollowUpTimer = window.setTimeout(runPass, 2e3);
+  }
+  async _runSyncConsistencyFollowUpPass(verifyBudget) {
+    const meta = this.plugin.settings && this.plugin.settings.syncConsistencyMeta;
+    if (!meta)
+      return false;
+    const keys = Object.keys(meta);
+    if (keys.length === 0)
+      return false;
+    let needsRetry = false;
+    let madeChanges = false;
+    for (const didaId of keys) {
+      if (verifyBudget.value <= 0) {
+        needsRetry = true;
+        continue;
+      }
+      const record = meta[didaId];
+      if (!record || !record.title && !record.date) {
+        delete meta[didaId];
+        madeChanges = true;
+        continue;
+      }
+      const task = this.plugin.settings.tasks.find((t) => t && t.didaId === didaId);
+      if (task) {
+        verifyBudget.value--;
+        let result = { kind: "uncertain" };
+        try {
+          result = await this._verifySingleDidaTaskStatus(task.projectId, didaId);
+        } catch (e) {
+          result = { kind: "uncertain", error: e };
+        }
+        if (result.kind === "uncertain") {
+          needsRetry = true;
+        } else if (result.kind === "not_found") {
+          delete meta[didaId];
+          madeChanges = true;
+        } else {
+          const data = result.data || {};
+          if (record.title) {
+            const titleSettled = await this._reconcileTitleConsistency(task, record.title, data);
+            if (titleSettled === "settled") {
+              delete record.title;
+              madeChanges = true;
+            } else {
+              needsRetry = true;
+            }
+          }
+          if (record.date) {
+            const dateSettled = await this._reconcileDateConsistency(task, record.date, data);
+            if (dateSettled === "settled") {
+              delete record.date;
+              madeChanges = true;
+            } else {
+              needsRetry = true;
+            }
+          }
+          if (!record.title && !record.date) {
+            delete meta[didaId];
+            madeChanges = true;
+          }
+        }
+      } else {
+        delete meta[didaId];
+        madeChanges = true;
+      }
+    }
+    if (madeChanges) {
+      await this.plugin.saveSettings();
+    }
+    return !needsRetry;
+  }
+  async _reconcileTitleConsistency(task, expectedTitle, remoteData) {
+    if (!task || !expectedTitle)
+      return "settled";
+    const localTitle = (task.title || "").trim();
+    const normalizedLocal = localTitle.replace(/\s+/g, " ");
+    const normalizedExpected = expectedTitle.replace(/\s+/g, " ");
+    if (normalizedLocal === normalizedExpected)
+      return "settled";
+    return "retry";
+  }
+  async _reconcileDateConsistency(task, expectedDate, remoteData) {
+    if (!task || !expectedDate)
+      return "settled";
+    const localDue = task.dueDate || "";
+    if (localDue && localDue.includes(expectedDate))
+      return "settled";
+    return "retry";
+  }
+  _recordTitleConsistencyExpectation(didaId, title, direction) {
+    if (!this.plugin.settings.syncConsistencyMeta) {
+      this.plugin.settings.syncConsistencyMeta = {};
+    }
+    if (!this.plugin.settings.syncConsistencyMeta[didaId]) {
+      this.plugin.settings.syncConsistencyMeta[didaId] = {};
+    }
+    this.plugin.settings.syncConsistencyMeta[didaId].title = title;
+  }
+  _recordDateConsistencyExpectation(didaId, task, direction) {
+    if (!this.plugin.settings.syncConsistencyMeta) {
+      this.plugin.settings.syncConsistencyMeta = {};
+    }
+    if (!this.plugin.settings.syncConsistencyMeta[didaId]) {
+      this.plugin.settings.syncConsistencyMeta[didaId] = {};
+    }
+    const date = task.dueDate || task.startDate;
+    if (date) {
+      const dateMatch = date.match(/\d{4}-\d{2}-\d{2}/);
+      if (dateMatch) {
+        this.plugin.settings.syncConsistencyMeta[didaId].date = dateMatch[0];
       }
     }
   }
@@ -6603,6 +7065,7 @@ var TaskActionMenu = class {
     this.keyHandler = null;
     this.clickOutsideHandler = null;
     this.scrollHandler = null;
+    this._calendarViewMonth = null;
     this.app = app;
     this.plugin = plugin;
     this.editor = editor;
@@ -6971,6 +7434,7 @@ var TaskActionMenu = class {
     if (!this.menuElement)
       return;
     this.menuElement.empty();
+    this.menuElement.removeClass("task-action-menu-with-calendar");
     this.selectedIndex = 0;
     this.menuItems = [];
     this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "\u9009\u62E9\u64CD\u4F5C";
@@ -6987,14 +7451,14 @@ var TaskActionMenu = class {
     searchOption.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      this.close();
-      this.onAction("search");
+      this.renderSearchMenu();
     });
     this.menuItems.push(searchOption);
     const dateOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: "\u{1F4C5} \u5230\u671F\u65E5\u671F" });
     dateOption.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
+      this._calendarViewMonth = null;
       this.showingDateMenu = true;
       this.renderDateMenu();
     });
@@ -7005,47 +7469,178 @@ var TaskActionMenu = class {
     if (!this.menuElement)
       return;
     this.menuElement.empty();
+    this.menuElement.addClass("task-action-menu-with-calendar");
     this.selectedIndex = 0;
     this.menuItems = [];
-    this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "\u9009\u62E9\u65E5\u671F";
-    this.menuElement.createEl("div", { cls: "task-action-menu-back", text: "\u2190 \u8FD4\u56DE" }).addEventListener("click", (e) => {
+    const today = new Date();
+    const todayStr = this.formatDate(today);
+    if (!this._calendarViewMonth) {
+      const initial = this.initialTaskInfo;
+      if (initial && initial.date && /^\d{4}-\d{2}-\d{2}$/.test(initial.date)) {
+        const parts = initial.date.split("-");
+        const year2 = parseInt(parts[0], 10);
+        const month2 = parseInt(parts[1], 10) - 1;
+        if (!isNaN(year2) && !isNaN(month2)) {
+          this._calendarViewMonth = new Date(year2, month2, 1);
+        }
+      }
+      if (!this._calendarViewMonth) {
+        this._calendarViewMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      }
+    }
+    this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "\u9009\u62E9\u5230\u671F\u65E5\u671F";
+    const backBtn = this.menuElement.createEl("div", { cls: "task-action-menu-back", text: "\u2190 \u8FD4\u56DE" });
+    backBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this._calendarViewMonth = null;
+      this.showingDateMenu = false;
+      this.renderMainMenu();
+    });
+    this.menuItems.push(backBtn);
+    const year = this._calendarViewMonth.getFullYear();
+    const month = this._calendarViewMonth.getMonth();
+    const navDiv = this.menuElement.createEl("div", { cls: "task-action-cal-nav" });
+    const prevBtn = navDiv.createEl("span", { cls: "task-action-cal-nav-btn", text: "\u2039", attr: { title: "\u4E0A\u4E00\u6708" } });
+    prevBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this._calendarViewMonth = new Date(year, month - 1, 1);
+      this.renderDateMenu();
+    });
+    const monthLabel = navDiv.createEl("span", { cls: "task-action-cal-nav-label" });
+    monthLabel.textContent = `${year}\u5E74${month + 1}\u6708`;
+    const nextBtn = navDiv.createEl("span", { cls: "task-action-cal-nav-btn", text: "\u203A", attr: { title: "\u4E0B\u4E00\u6708" } });
+    nextBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this._calendarViewMonth = new Date(year, month + 1, 1);
+      this.renderDateMenu();
+    });
+    const weekdaysDiv = this.menuElement.createEl("div", { cls: "task-action-cal-weekdays" });
+    ["\u65E5", "\u4E00", "\u4E8C", "\u4E09", "\u56DB", "\u4E94", "\u516D"].forEach((day) => {
+      weekdaysDiv.createEl("span", { cls: "task-action-cal-weekday", text: day });
+    });
+    const gridDiv = this.menuElement.createEl("div", { cls: "task-action-cal-grid" });
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const existingDate = this.initialTaskInfo && this.initialTaskInfo.date;
+    let dayCount = 1;
+    const totalCells = 7 * Math.ceil((firstDay + daysInMonth) / 7);
+    for (let i = 0; i < totalCells; i++) {
+      if (i < firstDay || dayCount > daysInMonth) {
+        gridDiv.createDiv({ cls: "task-action-cal-cell task-action-cal-cell-empty" });
+      } else {
+        const cellDate = new Date(year, month, dayCount);
+        const dateStr = this.formatDate(cellDate);
+        const cell = gridDiv.createDiv({ cls: "task-action-cal-cell", text: String(dayCount), attr: { role: "button", tabindex: "0" } });
+        if (dateStr === todayStr) {
+          cell.addClass("task-action-cal-cell-today");
+          cell.title = "\u4ECA\u5929";
+        }
+        if (existingDate && dateStr === existingDate) {
+          cell.addClass("task-action-cal-cell-due");
+        }
+        cell.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.close();
+          this.onAction("date", { date: dateStr });
+        });
+        this.menuItems.push(cell);
+        dayCount++;
+      }
+    }
+    this.updateSelectedItem();
+    this.positionMenu();
+  }
+  renderSearchMenu() {
+    if (!this.menuElement || !this.editor || !this.cursor)
+      return;
+    this.menuElement.empty();
+    this.menuElement.removeClass("task-action-menu-with-calendar");
+    this.menuElement.addClass("task-action-menu-with-search");
+    this.selectedIndex = 0;
+    this.menuItems = [];
+    this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "\u5173\u8054/\u641C\u7D22\u4EFB\u52A1";
+    const backBtn = this.menuElement.createEl("div", { cls: "task-action-menu-back", text: "\u2190 \u8FD4\u56DE" });
+    backBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
       this.showingDateMenu = false;
       this.renderMainMenu();
     });
-    const optionsDiv = this.menuElement.createEl("div", { cls: "task-action-menu-options" });
-    this.getDateOptions().forEach((opt) => {
-      const el = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: opt.label });
-      el.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        this.close();
-        this.onAction("date", { date: opt.date });
-      });
-      this.menuItems.push(el);
+    this.menuItems.push(backBtn);
+    const searchContainer = this.menuElement.createEl("div", { cls: "dida-search-container" });
+    const searchInput = searchContainer.createEl("input", {
+      type: "text",
+      cls: "dida-search-input",
+      attr: { placeholder: "\u641C\u7D22\u4EFB\u52A1\u6216\u8F93\u5165\u65B0\u4EFB\u52A1\u6807\u9898\uFF08Enter\u786E\u8BA4\uFF09..." }
     });
+    searchInput.focus();
+    const resultsContainer = this.menuElement.createEl("div", { cls: "dida-suggestions-container" });
+    const tasks = (this.plugin.settings.tasks || []).filter((t) => {
+      if (t.parentId)
+        return false;
+      const isCompleted = t.completed === true || t.completed === 2 || t.status === 2;
+      const isArchived = t.projectClosed === true;
+      if (isCompleted)
+        return false;
+      if (!this.plugin.settings.showArchivedProjects && isArchived)
+        return false;
+      return true;
+    }).sort((a, b) => {
+      const dateA = new Date(a.updatedAt || a.createdAt).getTime();
+      const dateB = new Date(b.updatedAt || b.createdAt).getTime();
+      return dateB - dateA;
+    });
+    const renderResults = (query) => {
+      resultsContainer.empty();
+      this.menuItems = [backBtn];
+      const filtered = query ? tasks.filter((t) => {
+        const titleMatch = t.title && t.title.toLowerCase().includes(query.toLowerCase());
+        const projectMatch = t.projectName && t.projectName.toLowerCase().includes(query.toLowerCase());
+        return titleMatch || projectMatch;
+      }) : tasks;
+      if (filtered.length === 0) {
+        const noResult = resultsContainer.createEl("div", { cls: "dida-no-tasks", text: query ? "\u6CA1\u6709\u627E\u5230\u5339\u914D\u7684\u4EFB\u52A1\uFF0C\u6309Enter\u521B\u5EFA\u65B0\u4EFB\u52A1" : "\u6CA1\u6709\u627E\u5230\u4EFB\u52A1" });
+        this.menuItems.push(noResult);
+      } else {
+        filtered.forEach((task, idx) => {
+          const item = resultsContainer.createEl("div", { cls: "dida-suggestion-item" });
+          item.setAttribute("data-index", idx.toString());
+          const titleDiv = document.createElement("div");
+          titleDiv.className = "dida-suggestion-title";
+          titleDiv.textContent = task.title || "\u65E0\u6807\u9898\u4EFB\u52A1";
+          if (task.completed)
+            titleDiv.classList.add("completed");
+          item.appendChild(titleDiv);
+          if (task.projectName) {
+            const projectDiv = document.createElement("div");
+            projectDiv.className = "dida-suggestion-project";
+            projectDiv.textContent = "\u9879\u76EE: " + task.projectName;
+            item.appendChild(projectDiv);
+          }
+          item.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (this.onAction) {
+              this.onAction("selectTask", { task });
+            }
+            this.close();
+          });
+          this.menuItems.push(item);
+        });
+      }
+      this.updateSelectedItem();
+    };
+    searchInput.addEventListener("input", (e) => {
+      const query = e.target.value;
+      renderResults(query);
+    });
+    renderResults("");
     this.updateSelectedItem();
-  }
-  getDateOptions() {
-    const today = new Date();
-    const options = [];
-    options.push({ label: `\u4ECA\u5929 (${this.formatDate(today)})`, date: this.formatDate(today) });
-    const tomorrow = new Date(today);
-    tomorrow.setDate(today.getDate() + 1);
-    options.push({ label: `\u660E\u5929 (${this.formatDate(tomorrow)})`, date: this.formatDate(tomorrow) });
-    const afterTomorrow = new Date(today);
-    afterTomorrow.setDate(today.getDate() + 2);
-    options.push({ label: `\u540E\u5929 (${this.formatDate(afterTomorrow)})`, date: this.formatDate(afterTomorrow) });
-    const nextSat = new Date(today);
-    const daysToSat = (6 - today.getDay() + 7) % 7;
-    nextSat.setDate(today.getDate() + (daysToSat === 0 ? 7 : daysToSat));
-    options.push({ label: `\u661F\u671F\u516D (${this.formatDate(nextSat)})`, date: this.formatDate(nextSat) });
-    const nextSun = new Date(today);
-    const daysToSun = (7 - today.getDay()) % 7;
-    nextSun.setDate(today.getDate() + (daysToSun === 0 ? 7 : daysToSun));
-    options.push({ label: `\u661F\u671F\u65E5 (${this.formatDate(nextSun)})`, date: this.formatDate(nextSun) });
-    return options;
+    this.positionMenu();
   }
   navigateDown() {
     if (this.menuItems.length === 0)
@@ -7841,6 +8436,17 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
           this.insertTaskLink(editor, cursor, task);
         }
       });
+      const el = popup.element;
+      el.style.position = "fixed";
+      el.style.width = "400px";
+      el.style.maxHeight = "300px";
+      el.style.overflowY = "auto";
+      el.style.zIndex = "1000";
+      el.style.backgroundColor = "var(--background-primary)";
+      el.style.border = "1px solid var(--background-modifier-border)";
+      el.style.borderRadius = "8px";
+      el.style.boxShadow = "0 8px 32px rgba(0, 0, 0, 0.15)";
+      el.style.padding = "16px";
       let editorDom = null;
       if (editor.cm && editor.cm.dom)
         editorDom = editor.cm.dom;
@@ -7853,6 +8459,9 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
         if (activeView && activeView.editor)
           editorDom = ((_a = activeView.editor.cm) == null ? void 0 : _a.dom) || activeView.editor.dom;
       }
+      let lineEl = null;
+      let fallbackTop = 100;
+      let fallbackLeft = 10;
       if (editorDom) {
         const rect = editorDom.getBoundingClientRect();
         let top = rect.top;
@@ -7870,7 +8479,8 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
           top = rect.top + 20 * cursor.line + 20;
           left = rect.left + 20;
         }
-        let lineEl = null;
+        fallbackTop = top;
+        fallbackLeft = left;
         if (editor.cm && editor.cm.dom) {
           try {
             const lines = editor.cm.dom.querySelectorAll(".cm-line");
@@ -7906,21 +8516,10 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
               if (closest !== -1)
                 idx = closest;
             }
-            lineEl = idx >= 0 ? lines[idx] : lines[0];
+            lineEl = idx >= 0 ? lines[idx] : lines.length > 0 ? lines[0] : null;
           } catch (e) {
           }
         }
-        const el = popup.element;
-        el.style.position = "fixed";
-        el.style.width = "400px";
-        el.style.maxHeight = "300px";
-        el.style.overflowY = "auto";
-        el.style.zIndex = "1000";
-        el.style.backgroundColor = "var(--background-primary)";
-        el.style.border = "1px solid var(--background-modifier-border)";
-        el.style.borderRadius = "8px";
-        el.style.boxShadow = "0 8px 32px rgba(0, 0, 0, 0.15)";
-        el.style.padding = "16px";
         if (lineEl) {
           const lineRect = lineEl.getBoundingClientRect();
           el.style.left = lineRect.left + "px";
@@ -7935,15 +8534,20 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
         if (popupRect.bottom > winHeight) {
           if (lineEl) {
             const lineRect = lineEl.getBoundingClientRect();
-            el.style.top = lineRect.top - popupRect.height - 5 + "px";
+            const newTop = lineRect.top - popupRect.height - 5;
+            el.style.top = Math.max(10, newTop) + "px";
           } else {
-            el.style.top = top - popupRect.height - 5 + "px";
+            const newTop = top - popupRect.height - 5;
+            el.style.top = Math.max(10, newTop) + "px";
           }
         }
         if (popupRect.right > winWidth)
           el.style.left = winWidth - popupRect.width - 10 + "px";
         if (popupRect.left < 10)
           el.style.left = "10px";
+      } else {
+        el.style.left = fallbackLeft + "px";
+        el.style.top = fallbackTop + "px";
       }
     } catch (e) {
     }
@@ -8013,6 +8617,10 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
         this.showTaskSuggestions(editor, cursor, (task) => {
           this.linkTaskToLine(editor, cursor, task);
         });
+      } else if (action === "selectTask") {
+        if (data && data.task) {
+          this.linkTaskToLine(editor, cursor, data.task);
+        }
       }
       setTimeout(() => {
         this.isTaskActionInProgress = false;

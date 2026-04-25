@@ -553,6 +553,9 @@ export class TaskView extends ItemView {
 
                         this.updateTaskRowRepeatRule(taskItem, task);
 
+                        // Enable drag to markdown
+                        this._enableTaskDragToMarkdown(taskItem, task);
+
                         // Time/Reminder info
                         let reminderInfo = "";
                         try {
@@ -2494,6 +2497,106 @@ export class TaskView extends ItemView {
         } else if (existing) {
             existing.remove();
         }
+    }
+
+    // ==================== Drag Task to Markdown ====================
+
+    _enableTaskDragToMarkdown(element: HTMLElement, task: DidaTask) {
+        if (!element || !task) return;
+        if (!task.didaId) return;
+        if (element.dataset && element.dataset.didaDragBound === "1") return;
+        element.setAttribute("draggable", "true");
+        if (element.dataset) element.dataset.didaDragBound = "1";
+        element.addEventListener("dragstart", (e: DragEvent) => {
+            this._beginSidebarTaskDragMenuSuppression();
+            try {
+                const payload = this._buildDidaTaskDragPayload(task);
+                if (payload && e.dataTransfer) {
+                    e.dataTransfer.setData("text/plain", payload);
+                    e.dataTransfer.effectAllowed = "copy";
+                    element.classList.add("dida-task-dragging");
+                    e.stopPropagation();
+                }
+            } catch (err) { }
+        });
+        element.addEventListener("dragend", () => {
+            element.classList.remove("dida-task-dragging");
+            this._scheduleEndSidebarTaskDragMenuSuppression();
+            setTimeout(() => {
+                this._collapseActiveMarkdownEditorSelectionAfterSidebarTaskDrop();
+            }, 0);
+        });
+    }
+
+    _buildDidaTaskDragPayload(task: DidaTask): string {
+        if (!task || !task.didaId) return "";
+        const lines: string[] = [];
+        const mainLine = this._formatDidaTaskLineForDrag(task, "");
+        if (!mainLine) return "";
+        lines.push(mainLine);
+        const childIds = new Set<string>();
+        if (task.didaId) childIds.add(task.didaId);
+        if (task.id && task.id !== task.didaId) childIds.add(task.id);
+        const tasks = this.plugin.settings.tasks || [];
+        for (const child of tasks) {
+            if (child && child.parentId && childIds.has(child.parentId) && child.didaId) {
+                const childLine = this._formatDidaTaskLineForDrag(child, "\t");
+                if (childLine) lines.push(childLine);
+            }
+        }
+        return lines.join("\n");
+    }
+
+    _formatDidaTaskLineForDrag(task: DidaTask, indent: string): string {
+        if (!task || !task.didaId) return "";
+        const checkbox = task.status === 2 ? "[x]" : "[ ]";
+        const title = (task.title || "").replace(/\r?\n/g, " ").trim() || "无标题任务";
+        const dateStr = this._formatDidaTaskDueDateForDrag(task);
+        return `${indent}- ${checkbox} ${title} [🔗Dida](obsidian://dida-task?didaId=${task.didaId})${dateStr}`;
+    }
+
+    _formatDidaTaskDueDateForDrag(task: DidaTask): string {
+        const dateValue = (task && (task.dueDate || task.startDate)) || null;
+        if (!dateValue) return "";
+        try {
+            const date = new Date(dateValue);
+            if (isNaN(date.getTime())) return "";
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, "0");
+            const d = String(date.getDate()).padStart(2, "0");
+            return ` 📅 ${y}-${m}-${d}`;
+        } catch {
+            return "";
+        }
+    }
+
+    _beginSidebarTaskDragMenuSuppression() {
+        // Suppress context menu during drag
+    }
+
+    _scheduleEndSidebarTaskDragMenuSuppression() {
+        // Restore context menu after drag
+    }
+
+    _collapseActiveMarkdownEditorSelectionAfterSidebarTaskDrop() {
+        try {
+            const leaves = this.plugin.app.workspace.getLeavesOfType("markdown");
+            for (const leaf of leaves) {
+                const view = leaf.view;
+                if (view && (view as any).editor) {
+                    const editor = (view as any).editor as any;
+                    if (editor && editor.cm && editor.cm.doc) {
+                        const sel = editor.cm.doc.selection;
+                        if (!sel.empty()) {
+                            editor.cm.dispatch({
+                                selection: { anchor: sel.anchor },
+                                scrollIntoView: true
+                            });
+                        }
+                    }
+                }
+            }
+        } catch { }
     }
 
 }
