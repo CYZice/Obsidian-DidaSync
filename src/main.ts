@@ -788,6 +788,18 @@ export default class DidaSyncPlugin extends Plugin {
                     this.insertTaskLink(editor, cursor, task);
                 }
             });
+            const el = popup.element!;
+            el.style.position = "fixed";
+            el.style.width = "400px";
+            el.style.maxHeight = "300px";
+            el.style.overflowY = "auto";
+            el.style.zIndex = "1000";
+            el.style.backgroundColor = "var(--background-primary)";
+            el.style.border = "1px solid var(--background-modifier-border)";
+            el.style.borderRadius = "8px";
+            el.style.boxShadow = "0 8px 32px rgba(0, 0, 0, 0.15)";
+            el.style.padding = "16px";
+
             let editorDom: HTMLElement | null = null;
             if ((editor as any).cm && (editor as any).cm.dom) editorDom = (editor as any).cm.dom;
             else if ((editor as any).getInputField && typeof (editor as any).getInputField === "function") editorDom = (editor as any).getInputField();
@@ -796,6 +808,11 @@ export default class DidaSyncPlugin extends Plugin {
                 activeView = this.app.workspace.getActiveViewOfType("markdown");
                 if (activeView && activeView.editor) editorDom = activeView.editor.cm?.dom || activeView.editor.dom;
             }
+
+            let lineEl: HTMLElement | null = null;
+            let fallbackTop = 100;
+            let fallbackLeft = 10;
+
             if (editorDom) {
                 const rect = editorDom.getBoundingClientRect();
                 let top = rect.top;
@@ -813,7 +830,9 @@ export default class DidaSyncPlugin extends Plugin {
                     top = rect.top + 20 * cursor.line + 20;
                     left = rect.left + 20;
                 }
-                let lineEl: HTMLElement | null = null;
+                fallbackTop = top;
+                fallbackLeft = left;
+
                 if ((editor as any).cm && (editor as any).cm.dom) {
                     try {
                         const lines = (editor as any).cm.dom.querySelectorAll(".cm-line");
@@ -848,20 +867,10 @@ export default class DidaSyncPlugin extends Plugin {
                             }
                             if (closest !== -1) idx = closest;
                         }
-                        lineEl = idx >= 0 ? lines[idx] : lines[0];
+                        lineEl = idx >= 0 ? lines[idx] : (lines.length > 0 ? lines[0] : null);
                     } catch (e) { }
                 }
-                const el = popup.element!;
-                el.style.position = "fixed";
-                el.style.width = "400px";
-                el.style.maxHeight = "300px";
-                el.style.overflowY = "auto";
-                el.style.zIndex = "1000";
-                el.style.backgroundColor = "var(--background-primary)";
-                el.style.border = "1px solid var(--background-modifier-border)";
-                el.style.borderRadius = "8px";
-                el.style.boxShadow = "0 8px 32px rgba(0, 0, 0, 0.15)";
-                el.style.padding = "16px";
+
                 if (lineEl) {
                     const lineRect = lineEl.getBoundingClientRect();
                     el.style.left = lineRect.left + "px";
@@ -876,13 +885,18 @@ export default class DidaSyncPlugin extends Plugin {
                 if (popupRect.bottom > winHeight) {
                     if (lineEl) {
                         const lineRect = lineEl.getBoundingClientRect();
-                        el.style.top = lineRect.top - popupRect.height - 5 + "px";
+                        const newTop = lineRect.top - popupRect.height - 5;
+                        el.style.top = Math.max(10, newTop) + "px";
                     } else {
-                        el.style.top = top - popupRect.height - 5 + "px";
+                        const newTop = top - popupRect.height - 5;
+                        el.style.top = Math.max(10, newTop) + "px";
                     }
                 }
                 if (popupRect.right > winWidth) el.style.left = winWidth - popupRect.width - 10 + "px";
                 if (popupRect.left < 10) el.style.left = "10px";
+            } else {
+                el.style.left = fallbackLeft + "px";
+                el.style.top = fallbackTop + "px";
             }
         } catch (e) { }
     }
@@ -956,6 +970,10 @@ export default class DidaSyncPlugin extends Plugin {
                 this.showTaskSuggestions(editor, cursor, (task) => {
                     this.linkTaskToLine(editor, cursor, task);
                 });
+            } else if (action === "selectTask") {
+                if (data && data.task) {
+                    this.linkTaskToLine(editor, cursor, data.task);
+                }
             }
             setTimeout(() => {
                 this.isTaskActionInProgress = false;

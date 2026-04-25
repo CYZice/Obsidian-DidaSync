@@ -99,3 +99,18 @@ export function translateRepeatFlag(repeatFlag: string): string {
         return "重复 " + icon;
     }
 }
+
+export function safeDecode(str: string): string {
+    if (!str) return "";
+    try {
+        if (typeof decodeURIComponent !== "undefined") {
+            return decodeURIComponent(str);
+        }
+    } catch (e) { }
+    if (typeof Buffer !== "undefined" && typeof Buffer.from === "function") {
+        try {
+            return Buffer.from(str, "base64").toString("utf8");
+        } catch (e) { }
+    }
+    return "";
+}
