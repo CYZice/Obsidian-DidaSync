@@ -2956,7 +2956,7 @@ label+.dida-project-select {
 }
 
 .task-action-cal-cell-due {
-    background: var(--background-modifier-active-hover, var(--background-modifier-hover);
+    background: var(--background-modifier-active-hover);
 }
 
 /* 深色主题适配 */
