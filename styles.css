@@ -2859,6 +2859,106 @@ label+.dida-project-select {
     padding-left: 13px;
 }
 
+/* 任务操作菜单 · 到期日期简易日历 */
+.task-action-menu-inline.task-action-menu-with-calendar {
+    min-width: 252px;
+    max-width: 280px;
+}
+
+.task-action-cal-today-hint {
+    padding: 6px 12px 4px;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.task-action-cal-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 10px;
+}
+
+.task-action-cal-nav-btn {
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    line-height: 28px;
+    text-align: center;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 18px;
+    color: var(--text-muted);
+    user-select: none;
+}
+
+.task-action-cal-nav-btn:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+.task-action-cal-nav-label {
+    flex: 1 1 auto;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-normal);
+}
+
+.task-action-cal-weekdays {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+    padding: 2px 8px 4px;
+    font-size: 10px;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.task-action-cal-weekday {
+    padding: 2px 0;
+}
+
+.task-action-cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 3px;
+    padding: 4px 8px 10px;
+}
+
+.task-action-cal-cell {
+    min-height: 28px;
+    line-height: 28px;
+    text-align: center;
+    font-size: 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--text-normal);
+    user-select: none;
+}
+
+.task-action-cal-cell-empty {
+    visibility: hidden;
+    pointer-events: none;
+    min-height: 28px;
+}
+
+.task-action-cal-cell:hover:not(.task-action-cal-cell-empty) {
+    background: var(--background-modifier-hover);
+}
+
+.task-action-cal-cell-today {
+    font-weight: 700;
+    box-shadow: inset 0 0 0 2px var(--interactive-accent);
+    border-radius: 4px;
+}
+
+.task-action-cal-cell-due {
+    background: var(--background-modifier-active-hover, var(--background-modifier-hover);
+}
+
 /* 深色主题适配 */
 .theme-dark .task-action-menu {
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);

@@ -17,6 +17,7 @@ export class TaskActionMenu {
     keyHandler: ((e: KeyboardEvent) => void) | null = null;
     clickOutsideHandler: ((e: MouseEvent) => void) | null = null;
     scrollHandler: (() => void) | null = null;
+    _calendarViewMonth: Date | null = null;
 
     constructor(app: App, plugin: DidaSyncPlugin, editor: Editor, cursor: EditorPosition, onAction: (action: string, data?: any) => void) {
         this.app = app;
@@ -366,6 +367,7 @@ export class TaskActionMenu {
     renderMainMenu() {
         if (!this.menuElement) return;
         this.menuElement.empty();
+        this.menuElement.removeClass("task-action-menu-with-calendar");
         this.selectedIndex = 0;
         this.menuItems = [];
 
@@ -384,14 +386,14 @@ export class TaskActionMenu {
         const searchOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: "🔍 关联/搜索任务" });
         searchOption.addEventListener("click", (e) => {
             e.preventDefault(); e.stopPropagation();
-            this.close();
-            this.onAction("search");
+            this.renderSearchMenu();
         });
         this.menuItems.push(searchOption);
 
         const dateOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: "📅 到期日期" });
         dateOption.addEventListener("click", (e) => {
             e.preventDefault(); e.stopPropagation();
+            this._calendarViewMonth = null;
             this.showingDateMenu = true;
             this.renderDateMenu();
         });
@@ -403,57 +405,209 @@ export class TaskActionMenu {
     renderDateMenu() {
         if (!this.menuElement) return;
         this.menuElement.empty();
+        this.menuElement.addClass("task-action-menu-with-calendar");
         this.selectedIndex = 0;
         this.menuItems = [];
 
-        this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "选择日期";
+        const today = new Date();
+        const todayStr = this.formatDate(today);
 
-        this.menuElement.createEl("div", { cls: "task-action-menu-back", text: "← 返回" }).addEventListener("click", (e) => {
-            e.preventDefault(); e.stopPropagation();
+        if (!this._calendarViewMonth) {
+            const initial = this.initialTaskInfo;
+            if (initial && initial.date && /^\d{4}-\d{2}-\d{2}$/.test(initial.date)) {
+                const parts = initial.date.split("-");
+                const year = parseInt(parts[0], 10);
+                const month = parseInt(parts[1], 10) - 1;
+                if (!isNaN(year) && !isNaN(month)) {
+                    this._calendarViewMonth = new Date(year, month, 1);
+                }
+            }
+            if (!this._calendarViewMonth) {
+                this._calendarViewMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+            }
+        }
+
+        this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "选择到期日期";
+
+        const backBtn = this.menuElement.createEl("div", { cls: "task-action-menu-back", text: "← 返回" });
+        backBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this._calendarViewMonth = null;
             this.showingDateMenu = false;
             this.renderMainMenu();
         });
+        this.menuItems.push(backBtn);
 
-        const optionsDiv = this.menuElement.createEl("div", { cls: "task-action-menu-options" });
+        const year = this._calendarViewMonth.getFullYear();
+        const month = this._calendarViewMonth.getMonth();
 
-        this.getDateOptions().forEach(opt => {
-            const el = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: opt.label });
-            el.addEventListener("click", (e) => {
-                e.preventDefault(); e.stopPropagation();
-                this.close();
-                this.onAction("date", { date: opt.date });
-            });
-            this.menuItems.push(el);
+        const navDiv = this.menuElement.createEl("div", { cls: "task-action-cal-nav" });
+
+        const prevBtn = navDiv.createEl("span", { cls: "task-action-cal-nav-btn", text: "‹", attr: { title: "上一月" } });
+        prevBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this._calendarViewMonth = new Date(year, month - 1, 1);
+            this.renderDateMenu();
         });
 
+        const monthLabel = navDiv.createEl("span", { cls: "task-action-cal-nav-label" });
+        monthLabel.textContent = `${year}年${month + 1}月`;
+
+        const nextBtn = navDiv.createEl("span", { cls: "task-action-cal-nav-btn", text: "›", attr: { title: "下一月" } });
+        nextBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this._calendarViewMonth = new Date(year, month + 1, 1);
+            this.renderDateMenu();
+        });
+
+        const weekdaysDiv = this.menuElement.createEl("div", { cls: "task-action-cal-weekdays" });
+        ["日", "一", "二", "三", "四", "五", "六"].forEach(day => {
+            weekdaysDiv.createEl("span", { cls: "task-action-cal-weekday", text: day });
+        });
+
+        const gridDiv = this.menuElement.createEl("div", { cls: "task-action-cal-grid" });
+        const firstDay = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const existingDate = this.initialTaskInfo && this.initialTaskInfo.date;
+        let dayCount = 1;
+        const totalCells = 7 * Math.ceil((firstDay + daysInMonth) / 7);
+
+        for (let i = 0; i < totalCells; i++) {
+            if (i < firstDay || dayCount > daysInMonth) {
+                gridDiv.createDiv({ cls: "task-action-cal-cell task-action-cal-cell-empty" });
+            } else {
+                const cellDate = new Date(year, month, dayCount);
+                const dateStr = this.formatDate(cellDate);
+                const cell = gridDiv.createDiv({ cls: "task-action-cal-cell", text: String(dayCount), attr: { role: "button", tabindex: "0" } });
+
+                if (dateStr === todayStr) {
+                    cell.addClass("task-action-cal-cell-today");
+                    cell.title = "今天";
+                }
+                if (existingDate && dateStr === existingDate) {
+                    cell.addClass("task-action-cal-cell-due");
+                }
+
+                cell.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.close();
+                    this.onAction("date", { date: dateStr });
+                });
+
+                this.menuItems.push(cell);
+                dayCount++;
+            }
+        }
+
         this.updateSelectedItem();
+        this.positionMenu();
     }
 
-    getDateOptions() {
-        const today = new Date();
-        const options = [];
+    renderSearchMenu() {
+        if (!this.menuElement || !this.editor || !this.cursor) return;
 
-        options.push({ label: `今天 (${this.formatDate(today)})`, date: this.formatDate(today) });
+        this.menuElement.empty();
+        this.menuElement.removeClass("task-action-menu-with-calendar");
+        this.menuElement.addClass("task-action-menu-with-search");
+        this.selectedIndex = 0;
+        this.menuItems = [];
 
-        const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
-        options.push({ label: `明天 (${this.formatDate(tomorrow)})`, date: this.formatDate(tomorrow) });
+        this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "关联/搜索任务";
 
-        const afterTomorrow = new Date(today); afterTomorrow.setDate(today.getDate() + 2);
-        options.push({ label: `后天 (${this.formatDate(afterTomorrow)})`, date: this.formatDate(afterTomorrow) });
+        const backBtn = this.menuElement.createEl("div", { cls: "task-action-menu-back", text: "← 返回" });
+        backBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.showingDateMenu = false;
+            this.renderMainMenu();
+        });
+        this.menuItems.push(backBtn);
 
-        // Next Saturday
-        const nextSat = new Date(today);
-        const daysToSat = (6 - today.getDay() + 7) % 7;
-        nextSat.setDate(today.getDate() + (daysToSat === 0 ? 7 : daysToSat));
-        options.push({ label: `星期六 (${this.formatDate(nextSat)})`, date: this.formatDate(nextSat) });
+        const searchContainer = this.menuElement.createEl("div", { cls: "dida-search-container" });
+        const searchInput = searchContainer.createEl("input", {
+            type: "text",
+            cls: "dida-search-input",
+            attr: { placeholder: "搜索任务或输入新任务标题（Enter确认）..." }
+        });
+        searchInput.focus();
 
-        // Next Sunday
-        const nextSun = new Date(today);
-        const daysToSun = (7 - today.getDay()) % 7;
-        nextSun.setDate(today.getDate() + (daysToSun === 0 ? 7 : daysToSun));
-        options.push({ label: `星期日 (${this.formatDate(nextSun)})`, date: this.formatDate(nextSun) });
+        const resultsContainer = this.menuElement.createEl("div", { cls: "dida-suggestions-container" });
 
-        return options;
+        const tasks = (this.plugin.settings.tasks || []).filter(t => {
+            if (t.parentId) return false;
+            const isCompleted = t.completed === true || t.completed === 2 || t.status === 2;
+            const isArchived = t.projectClosed === true;
+            if (isCompleted) return false;
+            if (!this.plugin.settings.showArchivedProjects && isArchived) return false;
+            return true;
+        }).sort((a, b) => {
+            const dateA = new Date(a.updatedAt || a.createdAt).getTime();
+            const dateB = new Date(b.updatedAt || b.createdAt).getTime();
+            return dateB - dateA;
+        });
+
+        const renderResults = (query: string) => {
+            resultsContainer.empty();
+            this.menuItems = [backBtn];
+
+            const filtered = query
+                ? tasks.filter(t => {
+                    const titleMatch = t.title && t.title.toLowerCase().includes(query.toLowerCase());
+                    const projectMatch = t.projectName && t.projectName.toLowerCase().includes(query.toLowerCase());
+                    return titleMatch || projectMatch;
+                })
+                : tasks;
+
+            if (filtered.length === 0) {
+                const noResult = resultsContainer.createEl("div", { cls: "dida-no-tasks", text: query ? "没有找到匹配的任务，按Enter创建新任务" : "没有找到任务" });
+                this.menuItems.push(noResult);
+            } else {
+                filtered.forEach((task, idx) => {
+                    const item = resultsContainer.createEl("div", { cls: "dida-suggestion-item" });
+                    item.setAttribute("data-index", idx.toString());
+
+                    const titleDiv = document.createElement("div");
+                    titleDiv.className = "dida-suggestion-title";
+                    titleDiv.textContent = task.title || "无标题任务";
+                    if (task.completed) titleDiv.classList.add("completed");
+                    item.appendChild(titleDiv);
+
+                    if (task.projectName) {
+                        const projectDiv = document.createElement("div");
+                        projectDiv.className = "dida-suggestion-project";
+                        projectDiv.textContent = "项目: " + task.projectName;
+                        item.appendChild(projectDiv);
+                    }
+
+                    item.addEventListener("click", (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (this.onAction) {
+                            this.onAction("selectTask", { task });
+                        }
+                        this.close();
+                    });
+
+                    this.menuItems.push(item);
+                });
+            }
+
+            this.updateSelectedItem();
+        };
+
+        searchInput.addEventListener("input", (e) => {
+            const query = (e.target as HTMLInputElement).value;
+            renderResults(query);
+        });
+
+        renderResults("");
+
+        this.updateSelectedItem();
+        this.positionMenu();
     }
 
     navigateDown() {
