@@ -15,6 +15,7 @@ export class TaskView extends ItemView {
     dateFilter: string | null;
     eventCleanupHandlers: (() => void)[];
     selectedDate: Date | null;
+    lastOpenTaskItem: HTMLElement | null = null;
 
     constructor(leaf: WorkspaceLeaf, plugin: DidaSyncPlugin) {
         super(leaf);
@@ -1834,10 +1835,18 @@ export class TaskView extends ItemView {
         const existing = taskItem.querySelector(".dida-task-details");
         if (existing) {
             existing.remove();
+            taskItem.setAttribute("draggable", "true");
+            if (this.lastOpenTaskItem === taskItem) this.lastOpenTaskItem = null;
             return;
         }
 
         const details = taskItem.createDiv("dida-task-details");
+        // 禁用当前任务项拖拽，并恢复上一个任务项的拖拽
+        if (this.lastOpenTaskItem && this.lastOpenTaskItem !== taskItem) {
+            this.lastOpenTaskItem.setAttribute("draggable", "true");
+        }
+        taskItem.setAttribute("draggable", "false");
+        this.lastOpenTaskItem = taskItem;
 
         let currentTask = null;
         if (task.originalIndex !== undefined && this.plugin.settings.tasks[task.originalIndex]) {
@@ -2100,6 +2109,8 @@ export class TaskView extends ItemView {
                     if (titleEl) this.renderTaskTitleContent(titleEl as HTMLElement, titleInput.value.trim());
                 }
                 details.remove();
+                taskItem.setAttribute("draggable", "true");
+                if (this.lastOpenTaskItem === taskItem) this.lastOpenTaskItem = null;
             };
 
             saveBtn.onclick = save;

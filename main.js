@@ -1870,6 +1870,7 @@ var TASK_VIEW_TYPE = "dida-task-view";
 var TaskView = class extends import_obsidian4.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
+    this.lastOpenTaskItem = null;
     this.plugin = plugin;
     this.searchQuery = "";
     this.isComposing = false;
@@ -3514,9 +3515,17 @@ var TaskView = class extends import_obsidian4.ItemView {
     const existing = taskItem.querySelector(".dida-task-details");
     if (existing) {
       existing.remove();
+      taskItem.setAttribute("draggable", "true");
+      if (this.lastOpenTaskItem === taskItem)
+        this.lastOpenTaskItem = null;
       return;
     }
     const details = taskItem.createDiv("dida-task-details");
+    if (this.lastOpenTaskItem && this.lastOpenTaskItem !== taskItem) {
+      this.lastOpenTaskItem.setAttribute("draggable", "true");
+    }
+    taskItem.setAttribute("draggable", "false");
+    this.lastOpenTaskItem = taskItem;
     let currentTask = null;
     if (task.originalIndex !== void 0 && this.plugin.settings.tasks[task.originalIndex]) {
       currentTask = this.plugin.settings.tasks[task.originalIndex];
@@ -3751,6 +3760,9 @@ var TaskView = class extends import_obsidian4.ItemView {
             this.renderTaskTitleContent(titleEl, titleInput.value.trim());
         }
         details.remove();
+        taskItem.setAttribute("draggable", "true");
+        if (this.lastOpenTaskItem === taskItem)
+          this.lastOpenTaskItem = null;
       };
       saveBtn.onclick = save;
       titleInput.addEventListener("keypress", (e) => {
@@ -8848,8 +8860,13 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
           task.startDate = baseDate;
           task.isAllDay = true;
         }
-        if (newTitle)
-          task.title = newTitle;
+        if (newTitle) {
+          let cleanTitle = newTitle;
+          cleanTitle = cleanTitle.replace(/\s*\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=[a-zA-Z0-9]+\)\s*/g, "").trim();
+          cleanTitle = cleanTitle.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, "").trim();
+          cleanTitle = cleanTitle.replace(/\s+/g, " ").trim();
+          task.title = cleanTitle;
+        }
         task.updatedAt = new Date().toISOString();
         await this.saveSettings();
         await this.updateTaskInDidaList(task);

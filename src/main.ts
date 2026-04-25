@@ -1189,7 +1189,15 @@ export default class DidaSyncPlugin extends Plugin {
                     task.startDate = baseDate;
                     task.isAllDay = true;
                 }
-                if (newTitle) task.title = newTitle;
+                if (newTitle) {
+                    let cleanTitle = newTitle;
+                    // 去除 [🔗Dida](obsidian://...) 链接
+                    cleanTitle = cleanTitle.replace(/\s*\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=[a-zA-Z0-9]+\)\s*/g, "").trim();
+                    // 去除 📅 日期后缀（防万一）
+                    cleanTitle = cleanTitle.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, "").trim();
+                    cleanTitle = cleanTitle.replace(/\s+/g, " ").trim();
+                    task.title = cleanTitle;
+                }
                 task.updatedAt = new Date().toISOString();
                 await this.saveSettings();
                 await this.updateTaskInDidaList(task);
