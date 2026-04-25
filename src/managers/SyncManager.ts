@@ -3,10 +3,20 @@ import DidaSyncPlugin from "../main";
 import { DidaTask } from "../types";
 import { TASK_VIEW_TYPE, TaskView } from "../views/TaskView";
 
+// Reverse completion verification constants
+const REVERSE_COMPLETION_MISSING_THRESHOLD = 3;
+const REVERSE_COMPLETION_MAX_VERIFY_PER_SYNC = 20;
+const REVERSE_COMPLETION_FOLLOWUP_DELAY_MS = 2000;
+const REVERSE_COMPLETION_MAX_FOLLOWUP_PASSES = 6;
+
 export class SyncManager {
     plugin: DidaSyncPlugin;
     syncIntervalId: number | null = null;
     isSyncing: boolean = false;
+    _reverseCompletionFollowUpInProgress: boolean = false;
+    _reverseCompletionFollowUpTimer: number | null = null;
+    _syncConsistencyFollowUpInProgress: boolean = false;
+    _syncConsistencyFollowUpTimer: number | null = null;
 
     constructor(plugin: DidaSyncPlugin) {
         this.plugin = plugin;
@@ -392,6 +402,8 @@ export class SyncManager {
                 this.plugin.updateStatusBar("已连接");
                 this.plugin.refreshTaskView();
             }
+            this._scheduleReverseCompletionFollowUp();
+            this._scheduleSyncConsistencyFollowUp();
         } catch (e: any) {
             this.plugin.updateStatusBar("同步失败");
         } finally {
@@ -738,6 +750,351 @@ export class SyncManager {
                 }
             } catch (e) {
                 throw e;
+            }
+        }
+    }
+
+    // ==================== Reverse Completion Verification ====================
+
+    _getReverseCompletionMeta(didaId: string) {
+        if (!this.plugin.settings.reverseCompletionMeta || typeof this.plugin.settings.reverseCompletionMeta !== "object") {
+            this.plugin.settings.reverseCompletionMeta = {};
+        }
+        let meta = this.plugin.settings.reverseCompletionMeta[didaId];
+        if (!meta) {
+            meta = { missingStreak: 0, lastSeenAt: null, lastMissingAt: null };
+            this.plugin.settings.reverseCompletionMeta[didaId] = meta;
+        }
+        return meta;
+    }
+
+    _refreshReverseCompletionSeenMeta(tasks: any[]) {
+        if (!Array.isArray(tasks) || tasks.length === 0) return;
+        const now = new Date().toISOString();
+        for (const task of tasks) {
+            if (task && task.id) {
+                const meta = this._getReverseCompletionMeta(task.id);
+                meta.lastSeenAt = now;
+                meta.missingStreak = 0;
+            }
+        }
+    }
+
+    async _verifySingleDidaTaskStatus(projectId: string, didaId: string): Promise<{ kind: string; data?: any; httpStatus?: number; error?: any }> {
+        if (!didaId) return { kind: "uncertain" };
+        const url = `https://api.dida365.com/open/v1/project/${projectId}/task/${didaId}`;
+        try {
+            const res = await this.plugin.apiClient.makeAuthenticatedRequest(url);
+            if (res.status === 404) return { kind: "not_found" };
+            if (res.ok) {
+                let data = null;
+                try {
+                    data = await res.json();
+                } catch (e) {
+                    data = null;
+                }
+                return data && typeof data === "object"
+                    ? data.status === 2
+                        ? { kind: "completed", data }
+                        : { kind: "still_active", data }
+                    : { kind: "uncertain" };
+            }
+            return { kind: "uncertain", httpStatus: res.status };
+        } catch (e) {
+            return { kind: "uncertain", error: e };
+        }
+    }
+
+    async _decideReverseCompletion(task: any, context?: { verifyBudget?: { value: number }; decisionCache?: Map<string, boolean> }) {
+        if (context && context.decisionCache && context.decisionCache.has(task.didaId)) {
+            return context.decisionCache.get(task.didaId);
+        }
+        const meta = this._getReverseCompletionMeta(task.didaId);
+        const updateMeta = (result: boolean) => {
+            if (context && context.decisionCache && context.decisionCache.has(task.didaId)) {
+                context.decisionCache.set(task.didaId, result);
+            }
+            return result;
+        };
+        meta.missingStreak = (meta.missingStreak || 0) + 1;
+        meta.lastMissingAt = new Date().toISOString();
+        if (meta.missingStreak < REVERSE_COMPLETION_MISSING_THRESHOLD) return updateMeta(false);
+        const budget = context && context.verifyBudget;
+        if (!budget || budget.value <= 0) return updateMeta(false);
+        budget.value--;
+        const result = await this._verifySingleDidaTaskStatus(task.projectId, task.didaId);
+        switch (result.kind) {
+            case "completed":
+            case "not_found":
+                return updateMeta(true);
+            case "still_active":
+                meta.missingStreak = 0;
+                return updateMeta(false);
+            default:
+                return updateMeta(false);
+        }
+    }
+
+    _collectReverseCompletionCandidates(): Array<{ didaId: string; projectId: string }> {
+        const meta = this.plugin.settings && this.plugin.settings.reverseCompletionMeta;
+        if (!meta || typeof meta !== "object" || Object.keys(meta).length === 0) return [];
+        const taskMap = new Map<string, any>();
+        for (const task of this.plugin.settings.tasks) {
+            if (task && task.didaId) taskMap.set(task.didaId, task);
+        }
+        const candidates: Array<{ didaId: string; projectId: string }> = [];
+        for (const didaId of Object.keys(meta)) {
+            const m = meta[didaId];
+            if (!m || typeof m !== "object") continue;
+            const missingStreak = m.missingStreak || 0;
+            if (missingStreak < 1 || missingStreak >= REVERSE_COMPLETION_MISSING_THRESHOLD) continue;
+            const task = taskMap.get(didaId);
+            if (task && task.status !== 2) {
+                candidates.push({ didaId, projectId: task.projectId });
+            }
+        }
+        return candidates;
+    }
+
+    async _runReverseCompletionFollowUpPass(tasks: Array<{ didaId: string; projectId: string }>, verifyBudget: { value: number }, pass: number) {
+        const toRetry: Array<{ didaId: string; projectId: string }> = [];
+        const toConfirm: Array<{ didaId: string; projectId: string }> = [];
+        for (const task of tasks) {
+            if (verifyBudget.value <= 0) {
+                toRetry.push(task);
+                continue;
+            }
+            const localTask = this.plugin.settings.tasks.find((t: any) => t && t.didaId === task.didaId);
+            if (localTask && localTask.status !== 2) {
+                verifyBudget.value--;
+                let result = { kind: "uncertain" };
+                try {
+                    result = await this._verifySingleDidaTaskStatus(task.projectId, task.didaId);
+                } catch (e) {
+                    result = { kind: "uncertain", error: e };
+                }
+                const meta = this._getReverseCompletionMeta(task.didaId);
+                switch (result.kind) {
+                    case "still_active":
+                        meta.missingStreak = 0;
+                        meta.lastSeenAt = new Date().toISOString();
+                        break;
+                    case "completed":
+                    case "not_found":
+                        meta.missingStreak = (meta.missingStreak || 0) + 1;
+                        meta.lastMissingAt = new Date().toISOString();
+                        if (meta.missingStreak >= REVERSE_COMPLETION_MISSING_THRESHOLD) {
+                            toConfirm.push(task);
+                        } else {
+                            toRetry.push(task);
+                        }
+                        break;
+                    default:
+                        toRetry.push(task);
+                }
+            }
+        }
+        if (toConfirm.length > 0) {
+            await this._confirmReverseCompletionTasks(toConfirm);
+        }
+        return toRetry;
+    }
+
+    async _confirmReverseCompletionTasks(tasks: Array<{ didaId: string; projectId: string }>) {
+        for (const task of tasks) {
+            const localTask = this.plugin.settings.tasks.find((t: any) => t && t.didaId === task.didaId);
+            if (localTask && localTask.status !== 2) {
+                const now = new Date();
+                const y = now.getFullYear();
+                const m = String(now.getMonth() + 1).padStart(2, "0");
+                const d = String(now.getDate()).padStart(2, "0");
+                const h = String(now.getHours()).padStart(2, "0");
+                const min = String(now.getMinutes()).padStart(2, "0");
+                const s = String(now.getSeconds()).padStart(2, "0");
+                const offset = now.getTimezoneOffset();
+                const oh = Math.abs(Math.floor(offset / 60));
+                const om = Math.abs(offset % 60);
+                const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
+                localTask.status = 2;
+                if (!localTask.parentId) {
+                    localTask.completedTime = `${y}-${m}-${d}T${h}:${min}:${s}${tz}`;
+                }
+                localTask.updatedAt = new Date().toISOString();
+                await this.plugin.saveSettings();
+            }
+        }
+        if (tasks.length > 0) {
+            this.plugin.refreshTaskView();
+        }
+    }
+
+    _scheduleReverseCompletionFollowUp() {
+        if (this._reverseCompletionFollowUpInProgress) return;
+        const candidates = this._collectReverseCompletionCandidates();
+        if (!candidates || candidates.length === 0) return;
+        if (this._reverseCompletionFollowUpTimer) {
+            clearTimeout(this._reverseCompletionFollowUpTimer);
+            this._reverseCompletionFollowUpTimer = null;
+        }
+        let pass = 0;
+        const tasks = candidates.slice();
+        const verifyBudget = { value: REVERSE_COMPLETION_MAX_VERIFY_PER_SYNC };
+        const runPass = async () => {
+            if (!this._isPluginAliveForFollowUp()) return;
+            this._reverseCompletionFollowUpTimer = null;
+            this._reverseCompletionFollowUpInProgress = true;
+            try {
+                pass++;
+                tasks.slice();
+                const remaining = await this._runReverseCompletionFollowUpPass(tasks, verifyBudget, pass);
+                tasks.length = 0;
+                tasks.push(...remaining);
+            } catch (e) {
+            } finally {
+                this._reverseCompletionFollowUpInProgress = false;
+            }
+            if (this._isPluginAliveForFollowUp() && tasks.length > 0 && pass < REVERSE_COMPLETION_MAX_FOLLOWUP_PASSES) {
+                this._reverseCompletionFollowUpTimer = window.setTimeout(runPass, REVERSE_COMPLETION_FOLLOWUP_DELAY_MS);
+            }
+        };
+        this._reverseCompletionFollowUpTimer = window.setTimeout(runPass, REVERSE_COMPLETION_FOLLOWUP_DELAY_MS);
+    }
+
+    _isPluginAliveForFollowUp(): boolean {
+        return !!(this && this.plugin && this.plugin.settings && Array.isArray(this.plugin.settings.tasks));
+    }
+
+    // ==================== Sync Consistency Follow-up ====================
+
+    _scheduleSyncConsistencyFollowUp() {
+        if (this._syncConsistencyFollowUpInProgress) return;
+        const meta = this.plugin.settings && this.plugin.settings.syncConsistencyMeta;
+        if (!meta || Object.keys(meta).length === 0) return;
+        if (this._syncConsistencyFollowUpTimer) {
+            clearTimeout(this._syncConsistencyFollowUpTimer);
+            this._syncConsistencyFollowUpTimer = null;
+        }
+        const verifyBudget = { value: 20 };
+        const runPass = async () => {
+            if (!this._isPluginAliveForFollowUp()) return;
+            this._syncConsistencyFollowUpTimer = null;
+            this._syncConsistencyFollowUpInProgress = true;
+            try {
+                await this._runSyncConsistencyFollowUpPass(verifyBudget);
+            } catch (e) {
+            } finally {
+                this._syncConsistencyFollowUpInProgress = false;
+            }
+        };
+        this._syncConsistencyFollowUpTimer = window.setTimeout(runPass, 2000);
+    }
+
+    async _runSyncConsistencyFollowUpPass(verifyBudget: { value: number }): Promise<boolean> {
+        const meta = this.plugin.settings && this.plugin.settings.syncConsistencyMeta;
+        if (!meta) return false;
+        const keys = Object.keys(meta);
+        if (keys.length === 0) return false;
+        let needsRetry = false;
+        let madeChanges = false;
+        for (const didaId of keys) {
+            if (verifyBudget.value <= 0) {
+                needsRetry = true;
+                continue;
+            }
+            const record = meta[didaId];
+            if (!record || (!record.title && !record.date)) {
+                delete meta[didaId];
+                madeChanges = true;
+                continue;
+            }
+            const task = this.plugin.settings.tasks.find((t: any) => t && t.didaId === didaId);
+            if (task) {
+                verifyBudget.value--;
+                let result = { kind: "uncertain" };
+                try {
+                    result = await this._verifySingleDidaTaskStatus(task.projectId, didaId);
+                } catch (e) {
+                    result = { kind: "uncertain", error: e };
+                }
+                if (result.kind === "uncertain") {
+                    needsRetry = true;
+                } else if (result.kind === "not_found") {
+                    delete meta[didaId];
+                    madeChanges = true;
+                } else {
+                    const data = result.data || {};
+                    if (record.title) {
+                        const titleSettled = await this._reconcileTitleConsistency(task, record.title, data);
+                        if (titleSettled === "settled") {
+                            delete record.title;
+                            madeChanges = true;
+                        } else {
+                            needsRetry = true;
+                        }
+                    }
+                    if (record.date) {
+                        const dateSettled = await this._reconcileDateConsistency(task, record.date, data);
+                        if (dateSettled === "settled") {
+                            delete record.date;
+                            madeChanges = true;
+                        } else {
+                            needsRetry = true;
+                        }
+                    }
+                    if (!record.title && !record.date) {
+                        delete meta[didaId];
+                        madeChanges = true;
+                    }
+                }
+            } else {
+                delete meta[didaId];
+                madeChanges = true;
+            }
+        }
+        if (madeChanges) {
+            await this.plugin.saveSettings();
+        }
+        return !needsRetry;
+    }
+
+    async _reconcileTitleConsistency(task: any, expectedTitle: string, remoteData: any): Promise<"settled" | "retry" | "uncertain"> {
+        if (!task || !expectedTitle) return "settled";
+        const localTitle = (task.title || "").trim();
+        const normalizedLocal = localTitle.replace(/\s+/g, " ");
+        const normalizedExpected = expectedTitle.replace(/\s+/g, " ");
+        if (normalizedLocal === normalizedExpected) return "settled";
+        return "retry";
+    }
+
+    async _reconcileDateConsistency(task: any, expectedDate: string, remoteData: any): Promise<"settled" | "retry" | "uncertain"> {
+        if (!task || !expectedDate) return "settled";
+        const localDue = task.dueDate || "";
+        if (localDue && localDue.includes(expectedDate)) return "settled";
+        return "retry";
+    }
+
+    _recordTitleConsistencyExpectation(didaId: string, title: string, direction: "forward" | "reverse") {
+        if (!this.plugin.settings.syncConsistencyMeta) {
+            this.plugin.settings.syncConsistencyMeta = {};
+        }
+        if (!this.plugin.settings.syncConsistencyMeta[didaId]) {
+            this.plugin.settings.syncConsistencyMeta[didaId] = {};
+        }
+        this.plugin.settings.syncConsistencyMeta[didaId].title = title;
+    }
+
+    _recordDateConsistencyExpectation(didaId: string, task: any, direction: "forward" | "reverse") {
+        if (!this.plugin.settings.syncConsistencyMeta) {
+            this.plugin.settings.syncConsistencyMeta = {};
+        }
+        if (!this.plugin.settings.syncConsistencyMeta[didaId]) {
+            this.plugin.settings.syncConsistencyMeta[didaId] = {};
+        }
+        const date = task.dueDate || task.startDate;
+        if (date) {
+            const dateMatch = date.match(/\d{4}-\d{2}-\d{2}/);
+            if (dateMatch) {
+                this.plugin.settings.syncConsistencyMeta[didaId].date = dateMatch[0];
             }
         }
     }

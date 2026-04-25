@@ -88,6 +88,19 @@ export interface DidaSyncSettings {
     defaultViewMode: "task" | "timeblock";
     timeBlockHourHeight: number;
     timeBlockStartHour: number;
+
+    // Reverse completion verification metadata
+    reverseCompletionMeta: { [didaId: string]: {
+        missingStreak: number;
+        lastSeenAt: string | null;
+        lastMissingAt: string | null;
+    } };
+
+    // Sync consistency metadata
+    syncConsistencyMeta: { [didaId: string]: {
+        title?: string;
+        date?: string;
+    } };
 }
 
 export const DEFAULT_SETTINGS: DidaSyncSettings = {
@@ -109,7 +122,9 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     projectOrder: [],
     defaultViewMode: "task",
     timeBlockHourHeight: 80,
-    timeBlockStartHour: 0
+    timeBlockStartHour: 0,
+    reverseCompletionMeta: {},
+    syncConsistencyMeta: {}
 };
 
 export const OAUTH_CONFIG = {
