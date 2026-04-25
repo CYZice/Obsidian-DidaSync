@@ -1,7 +1,7 @@
 {
 	"id": "Obsidian-DidaSync",
 	"name": "Obsidian-DidaSync",
-	"version": "1.1.0",
+	"version": "1.2.0",
 	"minAppVersion": "0.15.0",
 	"description": "与滴答清单双向同步任务的插件",
 	"author": "CYZice",
