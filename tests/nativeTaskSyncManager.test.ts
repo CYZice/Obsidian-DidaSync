@@ -44,6 +44,13 @@ async function run() {
     assert.equal(tasks[1].repeatFlag, "RRULE:FREQ=WEEKLY;INTERVAL=1");
     assert.equal(tasks[2].didaId, "def456");
     assert.equal(manager.generateTaskId("A B.md", 2, "hello!"), "A_B_md_2_hello_");
+    assert.deepEqual(manager.normalizeAutoSyncTags("dida #work，next"), ["#dida", "#work", "#next"]);
+    assert.equal(manager.fileMatchesAutoSyncTags("#dida\n- [ ] Plain task", "#dida"), false);
+    assert.equal(manager.fileMatchesAutoSyncTags("- [ ] Plain task", "#dida", { frontmatter: { tags: ["dida"] } }), true);
+    assert.equal(manager.fileMatchesAutoSyncTags("- [ ] Plain task", "#dida", { tags: [{ tag: "#dida/project" }] }), false);
+    assert.equal(manager.fileMatchesAutoSyncTags("- [ ] Plain task", ""), false);
+    assert.ok(manager.withDidaLink(content, 0, "new123").split("\n")[0].includes("didaId=new123"));
+    assert.equal(manager.withDidaLink(content, 1, "new123"), content);
 
     (globalThis as any).window.offline();
     assert.equal(manager.getNetworkStatus(), false);

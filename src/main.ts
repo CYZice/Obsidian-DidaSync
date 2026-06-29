@@ -257,6 +257,7 @@ export default class DidaSyncPlugin extends Plugin {
         if (!Array.isArray(this.settings.hiddenProjectKeys)) this.settings.hiddenProjectKeys = [];
         if (!["all", "visible", "custom"].includes(this.settings.taskNoteSyncProjectScope)) this.settings.taskNoteSyncProjectScope = "all";
         if (!Array.isArray(this.settings.taskNoteSyncProjectKeys)) this.settings.taskNoteSyncProjectKeys = [];
+        if (typeof this.settings.nativeTaskAutoSyncTags !== "string") this.settings.nativeTaskAutoSyncTags = "";
         if (!this.settings.taskNoteSyncPathPatterns || typeof this.settings.taskNoteSyncPathPatterns !== "object") {
             this.settings.taskNoteSyncPathPatterns = { ...DEFAULT_SETTINGS.taskNoteSyncPathPatterns };
         } else {
@@ -1812,6 +1813,8 @@ export default class DidaSyncPlugin extends Plugin {
                         const content = await this.app.vault.read(file);
                         const nativeTasks = this.nativeTaskSyncManager.detectNativeTasks(content, file.path);
                         let changed = false;
+                        let updatedContent = content;
+                        let autoCreatedCount = 0;
                         for (const nativeTask of nativeTasks) {
                             if (nativeTask.hasLink && nativeTask.didaId) {
                                 const task = this.settings.tasks.find(t => t.didaId === nativeTask.didaId);
@@ -1847,9 +1850,75 @@ export default class DidaSyncPlugin extends Plugin {
                                 }
                             }
                         }
+                        if (this.settings.accessToken && this.nativeTaskSyncManager.fileMatchesAutoSyncTags(content, this.settings.nativeTaskAutoSyncTags, this.app.metadataCache.getFileCache(file))) {
+                            for (const nativeTask of nativeTasks) {
+                                if (nativeTask.hasLink || nativeTask.didaId || nativeTask.isCompleted || !nativeTask.title) continue;
+                                const existingAutoTask = this.settings.tasks.find(task => task.id === nativeTask.id && !!task.didaId);
+                                if (existingAutoTask?.didaId) {
+                                    updatedContent = this.nativeTaskSyncManager.withDidaLink(updatedContent, nativeTask.lineNumber, existingAutoTask.didaId);
+                                    continue;
+                                }
+                                try {
+                                    const created = await this.createTaskDirectly(nativeTask.title, {
+                                        startDate: nativeTask.startDate as any,
+                                        dueDate: nativeTask.dueDate as any,
+                                        isAllDay: nativeTask.isAllDay,
+                                        priority: nativeTask.priority,
+                                        repeatFlag: nativeTask.repeatFlag as any
+                                    });
+                                    if (!created?.id) continue;
+
+                                    updatedContent = this.nativeTaskSyncManager.withDidaLink(updatedContent, nativeTask.lineNumber, created.id);
+                                    const display = this.getProjectDisplayInfo(created.projectId || "inbox", created.projectName || "收集箱");
+                                    this.settings.tasks.push({
+                                        id: nativeTask.id,
+                                        title: nativeTask.title,
+                                        content: "",
+                                        completed: false,
+                                        status: 0,
+                                        didaId: created.id,
+                                        projectId: created.projectId || display.id || "inbox",
+                                        projectName: display.name || "收集箱",
+                                        createdAt: new Date().toISOString(),
+                                        updatedAt: new Date().toISOString(),
+                                        items: [],
+                                        dueDate: created.dueDate || nativeTask.dueDate as any,
+                                        etag: created.etag || "",
+                                        completedTime: null,
+                                        startDate: created.startDate || nativeTask.startDate as any,
+                                        isAllDay: created.isAllDay ?? nativeTask.isAllDay,
+                                        kind: created.kind || "TEXT",
+                                        projectViewMode: display.viewMode || "list",
+                                        projectKind: display.kind || "TASK",
+                                        reminders: created.reminders || [],
+                                        repeatFlag: created.repeatFlag || nativeTask.repeatFlag as any,
+                                        priority: created.priority ?? nativeTask.priority,
+                                        desc: "",
+                                        projectColor: display.color || "#F18181",
+                                        projectClosed: display.closed || false,
+                                        projectPermission: display.permission || "write",
+                                        parentId: null,
+                                        hasLink: true,
+                                        linkPath: file.path
+                                    });
+                                    changed = true;
+                                    autoCreatedCount++;
+                                } catch (e) { }
+                            }
+                            if (updatedContent !== content) {
+                                try {
+                                    this._isUpdatingNativeTaskStatus = true;
+                                    await this.app.vault.modify(file, updatedContent);
+                                } catch (e) {
+                                } finally {
+                                    this._isUpdatingNativeTaskStatus = false;
+                                }
+                            }
+                        }
                         if (changed) {
                             await this.saveSettings();
                             this.refreshTaskView();
+                            if (autoCreatedCount > 0) new Notice(`已自动同步 ${autoCreatedCount} 个任务到滴答清单`);
                         }
                     } catch (e) {
                         if (!this._lastErrorTime || Date.now() - this._lastErrorTime > 30000) {

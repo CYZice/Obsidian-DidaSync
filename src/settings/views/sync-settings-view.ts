@@ -96,6 +96,17 @@ export class SyncSettingsView extends AbstractSettingsView {
                     await this.plugin.saveSettings();
                 }));
 
+        new Setting(containerEl)
+            .setName("原生任务自动同步标签")
+            .setDesc('填写后，包含这些标签的文件里新增 "- [ ]" 任务会自动同步到滴答清单并回写链接。多个标签用空格或逗号分隔；留空则关闭自动同步。')
+            .addText((text) => text
+                .setPlaceholder("#dida")
+                .setValue(this.plugin.settings.nativeTaskAutoSyncTags || "")
+                .onChange(async (value) => {
+                    this.plugin.settings.nativeTaskAutoSyncTags = value;
+                    await this.plugin.saveSettings();
+                }));
+
         containerEl.createEl("h3", { text: "任务同步到笔记设置" });
 
         const noteSyncInfo = containerEl.createDiv("dida-settings-info dida-settings-info--primary");

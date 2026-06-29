@@ -1,5 +1,5 @@
 import DidaSyncPlugin from "../main";
-import { parseTaskLine } from "../taskLineFormat";
+import { formatTaskLine, parseTaskLine } from "../taskLineFormat";
 
 export interface NativeTask {
     id: string;
@@ -99,6 +99,47 @@ export class NativeTaskSyncManager {
             }
         }
         return tasks;
+    }
+
+    normalizeAutoSyncTags(rawTags: string | null | undefined): string[] {
+        return String(rawTags || "")
+            .split(/[\s,，]+/)
+            .map(tag => tag.trim())
+            .filter(Boolean)
+            .map(tag => tag.startsWith("#") ? tag : `#${tag}`)
+            .map(tag => tag.toLowerCase());
+    }
+
+    fileMatchesAutoSyncTags(_content: string, rawTags: string | null | undefined, cache?: any): boolean {
+        const targetTags = this.normalizeAutoSyncTags(rawTags);
+        if (targetTags.length === 0) return false;
+
+        const foundTags = new Set<string>();
+        const addTag = (value: unknown) => {
+            if (typeof value !== "string") return;
+            const trimmed = value.trim();
+            if (!trimmed) return;
+            foundTags.add((trimmed.startsWith("#") ? trimmed : `#${trimmed}`).toLowerCase());
+        };
+
+        const frontmatterTags = cache?.frontmatter?.tags ?? cache?.frontmatter?.tag;
+        if (Array.isArray(frontmatterTags)) frontmatterTags.forEach(addTag);
+        else if (typeof frontmatterTags === "string") frontmatterTags.split(/[\s,，]+/).forEach(addTag);
+
+        if (Array.isArray(cache?.tags)) {
+            cache.tags.forEach((item: any) => addTag(item?.tag));
+        }
+
+        return targetTags.some(tag => foundTags.has(tag));
+    }
+
+    withDidaLink(content: string, lineNumber: number, didaId: string): string {
+        const lines = content.split("\n");
+        if (lineNumber < 0 || lineNumber >= lines.length) return content;
+        const parsed = parseTaskLine(lines[lineNumber]);
+        if (!parsed || parsed.didaId) return content;
+        lines[lineNumber] = formatTaskLine(lines[lineNumber], { didaId });
+        return lines.join("\n");
     }
 
     generateTaskId(filePath: string, lineNumber: number, title: string): string {
