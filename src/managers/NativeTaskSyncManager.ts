@@ -102,11 +102,15 @@ export class NativeTaskSyncManager {
     }
 
     normalizeAutoSyncTags(rawTags: string | null | undefined): string[] {
-        return String(rawTags || "")
+        return this.normalizeAutoSyncMarkers(rawTags)
+            .map(tag => tag.startsWith("#") ? tag : `#${tag}`);
+    }
+
+    normalizeAutoSyncMarkers(rawMarkers: string | null | undefined): string[] {
+        return String(rawMarkers || "")
             .split(/[\s,，]+/)
             .map(tag => tag.trim())
             .filter(Boolean)
-            .map(tag => tag.startsWith("#") ? tag : `#${tag}`)
             .map(tag => tag.toLowerCase());
     }
 
@@ -131,6 +135,25 @@ export class NativeTaskSyncManager {
         }
 
         return targetTags.some(tag => foundTags.has(tag));
+    }
+
+    lineMatchesAutoSyncMarker(line: string, rawMarkers: string | null | undefined): boolean {
+        const markers = this.normalizeAutoSyncMarkers(rawMarkers);
+        if (markers.length === 0) return false;
+
+        const normalizedLine = line.toLowerCase();
+        return markers.some(marker => {
+            if (marker.startsWith("#") || /^[a-z0-9_/-]+$/i.test(marker)) {
+                const tag = marker.startsWith("#") ? marker : `#${marker}`;
+                return this.lineHasExactTag(normalizedLine, tag);
+            }
+            return normalizedLine.includes(marker);
+        });
+    }
+
+    private lineHasExactTag(line: string, tag: string): boolean {
+        const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return new RegExp(`(^|[\\s([{'"<])${escaped}(?=$|[\\s,，.。;；:：!?！？)\\]}'">])`).test(line);
     }
 
     withDidaLink(content: string, lineNumber: number, didaId: string): string {

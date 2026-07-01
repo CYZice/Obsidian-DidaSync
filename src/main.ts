@@ -258,6 +258,7 @@ export default class DidaSyncPlugin extends Plugin {
         if (!["all", "visible", "custom"].includes(this.settings.taskNoteSyncProjectScope)) this.settings.taskNoteSyncProjectScope = "all";
         if (!Array.isArray(this.settings.taskNoteSyncProjectKeys)) this.settings.taskNoteSyncProjectKeys = [];
         if (typeof this.settings.nativeTaskAutoSyncTags !== "string") this.settings.nativeTaskAutoSyncTags = "";
+        if (typeof this.settings.nativeTaskAutoSyncMarkers !== "string") this.settings.nativeTaskAutoSyncMarkers = "";
         if (!this.settings.taskNoteSyncPathPatterns || typeof this.settings.taskNoteSyncPathPatterns !== "object") {
             this.settings.taskNoteSyncPathPatterns = { ...DEFAULT_SETTINGS.taskNoteSyncPathPatterns };
         } else {
@@ -1850,8 +1851,10 @@ export default class DidaSyncPlugin extends Plugin {
                                 }
                             }
                         }
-                        if (this.settings.accessToken && this.nativeTaskSyncManager.fileMatchesAutoSyncTags(content, this.settings.nativeTaskAutoSyncTags, this.app.metadataCache.getFileCache(file))) {
+                        if (this.settings.accessToken && (this.settings.nativeTaskAutoSyncTags || this.settings.nativeTaskAutoSyncMarkers)) {
+                            const fileMatchesAutoSync = this.nativeTaskSyncManager.fileMatchesAutoSyncTags(content, this.settings.nativeTaskAutoSyncTags, this.app.metadataCache.getFileCache(file));
                             for (const nativeTask of nativeTasks) {
+                                if (!fileMatchesAutoSync && !this.nativeTaskSyncManager.lineMatchesAutoSyncMarker(nativeTask.originalLine, this.settings.nativeTaskAutoSyncMarkers)) continue;
                                 if (nativeTask.hasLink || nativeTask.didaId || nativeTask.isCompleted || !nativeTask.title) continue;
                                 const existingAutoTask = this.settings.tasks.find(task => task.id === nativeTask.id && !!task.didaId);
                                 if (existingAutoTask?.didaId) {

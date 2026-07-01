@@ -98,12 +98,23 @@ export class SyncSettingsView extends AbstractSettingsView {
 
         new Setting(containerEl)
             .setName("原生任务自动同步标签")
-            .setDesc('填写后，包含这些标签的文件里新增 "- [ ]" 任务会自动同步到滴答清单并回写链接。多个标签用空格或逗号分隔；留空则关闭自动同步。')
+            .setDesc('填写后，包含这些标签的文件里新增 "- [ ]" 任务会自动同步到滴答清单并回写链接。多个标签用空格或逗号分隔；留空则关闭文件级自动同步。')
             .addText((text) => text
                 .setPlaceholder("#dida")
                 .setValue(this.plugin.settings.nativeTaskAutoSyncTags || "")
                 .onChange(async (value) => {
                     this.plugin.settings.nativeTaskAutoSyncTags = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName("原生任务行自动同步标记")
+            .setDesc('填写后，任务行内包含这些标签或符号的 "- [ ]" 任务会自动同步到滴答清单并回写链接。多个标记用空格或逗号分隔；留空则关闭行级自动同步。')
+            .addText((text) => text
+                .setPlaceholder("#dida 🚀")
+                .setValue(this.plugin.settings.nativeTaskAutoSyncMarkers || "")
+                .onChange(async (value) => {
+                    this.plugin.settings.nativeTaskAutoSyncMarkers = value;
                     await this.plugin.saveSettings();
                 }));
 
