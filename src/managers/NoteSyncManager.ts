@@ -47,6 +47,8 @@ export class NoteSyncManager {
                 return await this.persistSummary(summary, source, startedAt, this.shouldSilenceSummaryNotice(summary, options));
             }
 
+            this.clearCachedNoteTasks();
+
             const remoteNotes = await this.fetchRemoteNotes();
             summary.fetched = remoteNotes.length;
             summary.missing = this.markMissingRemoteRecords(remoteNotes);
@@ -115,6 +117,7 @@ export class NoteSyncManager {
         const next = records.filter((record) => record.didaId !== didaId);
         if (next.length === records.length) return false;
         this.plugin.settings.didaNoteSyncRecords = next;
+        this.clearCachedNoteTasks(didaId);
         await this.plugin.saveSettings();
         this.plugin.refreshTaskView();
         return true;
@@ -736,7 +739,6 @@ export class NoteSyncManager {
         const didaId = note.didaId || note.id;
         if (!didaId) return;
         const noteWithProject = this.withSelectedNoteProjectFallback(note);
-        this.upsertCachedNoteTask(noteWithProject, didaId);
 
         const records = Array.isArray(this.plugin.settings.didaNoteSyncRecords)
             ? this.plugin.settings.didaNoteSyncRecords
@@ -808,24 +810,23 @@ export class NoteSyncManager {
         };
     }
 
-    private upsertCachedNoteTask(note: DidaTask, didaId: string) {
-        if (!Array.isArray(this.plugin.settings.tasks)) this.plugin.settings.tasks = [];
-        const noteWithProject = this.withSelectedNoteProjectFallback(note);
-        const normalized = this.plugin.normalizeRemoteTask
-            ? this.plugin.normalizeRemoteTask({ ...noteWithProject, id: didaId, kind: "NOTE" })
-            : { ...noteWithProject, id: didaId, didaId, kind: "NOTE" };
-        const index = this.plugin.settings.tasks.findIndex((task: DidaTask) => task.didaId === didaId || task.id === didaId);
-        if (index === -1) {
-            this.plugin.settings.tasks.push(normalized);
-            return;
-        }
-        this.plugin.settings.tasks[index] = {
-            ...this.plugin.settings.tasks[index],
-            ...normalized,
-            id: this.plugin.settings.tasks[index].id || normalized.id,
-            didaId,
-            kind: "NOTE"
-        };
+    private clearCachedNoteTasks(didaId?: string) {
+        if (!Array.isArray(this.plugin.settings.tasks)) return 0;
+        const before = this.plugin.settings.tasks.length;
+        this.plugin.settings.tasks = this.plugin.settings.tasks.filter((task: DidaTask) => {
+            if (!this.isCachedNoteTask(task)) return true;
+            if (!didaId) return false;
+            return task.didaId !== didaId && task.id !== didaId;
+        });
+        return before - this.plugin.settings.tasks.length;
+    }
+
+    private isCachedNoteTask(task: DidaTask | null | undefined) {
+        if (!task || typeof task !== "object") return false;
+        if (typeof this.plugin.isNoteListItem === "function") return this.plugin.isNoteListItem(task);
+        return task.kind === "NOTE" ||
+            task.projectKind === "NOTE" ||
+            (typeof task.projectViewMode === "string" && task.projectViewMode.trim().toLowerCase() === "note");
     }
 
     private countRecordsByStatus(status: DidaNoteSyncStatus): number {

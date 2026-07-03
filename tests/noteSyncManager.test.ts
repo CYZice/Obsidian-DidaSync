@@ -190,11 +190,18 @@ async function run() {
     assert.match(vaultData.get(record.path) || "", /didaNoteId: 'note-1'/);
     assert.match(vaultData.get(record.path) || "", /\n---\n## Test Note\n\nremote body\n?$/);
     assert.match(vaultData.get(record.path) || "", /remote body/);
+    assert.equal(plugin.settings.tasks.some((task: any) => task.kind === "NOTE"), false, "note sync should not cache pulled notes in task list storage");
+
+    plugin.settings.tasks = [
+        { id: "legacy-note-cache", didaId: "note-1", title: "Legacy Note Cache", kind: "NOTE", status: 0, projectId: "p1" },
+        { id: "task-kept", didaId: "task-remote", title: "Task Kept", kind: "TEXT", status: 0, projectId: "p1" }
+    ];
 
     const secondSummary = await manager.syncNow({ silent: true });
     assert.equal(secondSummary.conflicts, 0, "freshly pulled note should not be detected as a local/cloud conflict");
     assert.equal(plugin.settings.didaNoteSyncRecords[0].status, "synced");
     assert.equal(updates.length, 0, "freshly pulled note should not be pushed back without local edits");
+    assert.deepEqual(plugin.settings.tasks.map((task: any) => task.id), ["task-kept"], "legacy note cache should be removed without touching normal tasks");
 
     const file = app.vault.getAbstractFileByPath(record.path);
     const localChanged = (vaultData.get(record.path) || "").replace("remote body", "local body");
@@ -250,6 +257,9 @@ async function run() {
     assert.equal(missingPulled, false);
     assert.equal(plugin.settings.didaNoteSyncRecords[0].status, "missing");
     assert.equal(plugin.settings.didaNoteSyncRecords[0].remoteMissing, true);
+    assert.equal(plugin.settings.tasks.some((task: any) => task.didaId === "note-1"), false);
+    plugin.settings.tasks.push({ id: "legacy-note-cache-2", didaId: "note-1", title: "Legacy Note Cache 2", kind: "NOTE", status: 0, projectId: "p1" });
+    assert.equal(plugin.settings.tasks.some((task: any) => task.didaId === "note-1"), true);
 
     const beforeMissingFilePushUpdates = updates.length;
     abstractFiles.delete(record.path);
@@ -261,6 +271,8 @@ async function run() {
     const deleted = await manager.deleteLocalRecord("note-1");
     assert.equal(deleted, true);
     assert.equal(plugin.settings.didaNoteSyncRecords.length, 0);
+    assert.equal(plugin.settings.tasks.some((task: any) => task.didaId === "note-1"), false);
+    assert.equal(plugin.settings.tasks.some((task: any) => task.id === "task-kept"), true);
 
     setRemote("legacy local body", "e5");
     await manager.syncNow({ silent: true });
@@ -308,11 +320,7 @@ async function run() {
         ["p1", "p1"],
         "single selected note project should be used when the NOTE payload omits projectId"
     );
-    assert.equal(fallbackRuntime.plugin.settings.tasks.length, 2);
-    assert.deepEqual(
-        fallbackRuntime.plugin.settings.tasks.map((item: any) => [item.kind, item.projectId, item.projectKind, item.projectViewMode]),
-        [["NOTE", "p1", "NOTE", "note"], ["NOTE", "p1", "NOTE", "note"]]
-    );
+    assert.equal(fallbackRuntime.plugin.settings.tasks.length, 0, "note records should not create task-list cache entries");
 
     const inboxEnv = makeApp();
     const inboxRuntime = makePlugin(inboxEnv.app);
@@ -334,8 +342,7 @@ async function run() {
     assert.deepEqual(inboxRuntime.filters.at(-1), { kind: ["NOTE"], status: [0], projectIds: ["inbox124125"] });
     assert.equal(inboxRuntime.plugin.settings.didaNoteSyncRecords[0].projectId, "inbox");
     assert.equal(inboxRuntime.plugin.settings.didaNoteSyncRecords[0].projectName, "收集箱");
-    assert.equal(inboxRuntime.plugin.settings.tasks[0].projectId, "inbox");
-    assert.equal(inboxRuntime.plugin.settings.tasks[0].projectName, "收集箱");
+    assert.equal(inboxRuntime.plugin.settings.tasks.length, 0);
 
     console.log("NoteSyncManager tests passed");
 }

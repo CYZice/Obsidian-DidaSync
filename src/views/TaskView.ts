@@ -2155,35 +2155,7 @@ export class TaskView extends ItemView {
         taskListContainer.empty();
         taskListContainer.addClass("dida-note-list-view");
 
-        const records = this.plugin.settings.didaNoteSyncRecords || [];
-        const recordByDidaId = new Map(records.map((record) => [record.didaId, record]));
-        const cachedNoteTasks = (this.plugin.settings.tasks || []).filter((task) => this.plugin.isNoteListItem(task));
-        const displayedCachedNoteIds = new Set<string>();
-        const displayRecords = [
-            ...cachedNoteTasks.map((task) => {
-                const didaId = task.didaId || task.id || "";
-                if (didaId) displayedCachedNoteIds.add(didaId);
-                const record = didaId ? recordByDidaId.get(didaId) : null;
-                return record || {
-                    didaId,
-                    title: task.title || "Untitled",
-                    path: "",
-                    projectId: task.projectId,
-                    projectName: task.projectName,
-                    etag: task.etag || null,
-                    remoteModifiedTime: task.updatedAt || null,
-                    lastSyncedContentHash: "",
-                    lastSyncedAt: task.updatedAt || new Date().toISOString(),
-                    status: "missing" as const,
-                    remoteMissing: false,
-                    error: "尚未同步为 Markdown"
-                };
-            }),
-            ...records.filter((record) => {
-                if (displayedCachedNoteIds.has(record.didaId)) return false;
-                return true;
-            })
-        ];
+        const displayRecords = this.plugin.settings.didaNoteSyncRecords || [];
         const lastRun = this.plugin.settings.didaNoteSyncLastRun;
         const conflicts = displayRecords.filter((record) => record.status === "conflict").length;
         const errors = displayRecords.filter((record) => record.status === "error").length;
@@ -2292,6 +2264,20 @@ export class TaskView extends ItemView {
                 const timeSpan = rightButtons.createEl("span", { cls: "dida-task-due-date" });
                 timeSpan.textContent = this.formatNoteRecordTime(record.remoteModifiedTime || record.lastSyncedAt);
 
+                const deleteBtn = rightButtons.createEl("button", {
+                    cls: "dida-task-delete",
+                    attr: {
+                        title: "移除同步记录",
+                        "aria-label": `移除 ${record.title || record.path || "笔记"} 的同步记录`
+                    }
+                });
+                setIconElement(deleteBtn, "x");
+                deleteBtn.onclick = async (event) => {
+                    event.stopPropagation();
+                    event.preventDefault();
+                    await this.handleNoteRecordDelete(record);
+                };
+
                 const syncStatusSpan = rightButtons.createEl("span", { cls: `dida-sync-status ${status}` });
                 syncStatusSpan.title = fileMissing
                     ? "本地 Markdown 文件不存在"
@@ -2360,18 +2346,6 @@ export class TaskView extends ItemView {
                     await this.handleNoteRecordForcePush(record);
                 });
         });
-        menu.addItem((item) => {
-            item.setTitle("移除同步记录")
-                .setIcon("trash")
-                .onClick(async () => {
-                    if (!window.confirm(`移除“${record.title || record.path}”的同步记录？此操作不会删除本地文件或远程笔记。`)) return;
-                    const deleted = await this.plugin.noteSyncManager.deleteLocalRecord(record.didaId);
-                    if (deleted) {
-                        new Notice("同步记录已移除");
-                        this.renderTaskList();
-                    }
-                });
-        });
         menu.showAtMouseEvent(event);
     }
 
@@ -2400,6 +2374,15 @@ export class TaskView extends ItemView {
 
     isDuplicateLocalFileRecord(record: DidaNoteSyncRecord) {
         return typeof record.error === "string" && record.error.includes("多个本地 Markdown");
+    }
+
+    async handleNoteRecordDelete(record: DidaNoteSyncRecord) {
+        if (!window.confirm(`移除“${record.title || record.path}”的同步记录？此操作不会删除本地文件或远程笔记。`)) return;
+        const deleted = await this.plugin.noteSyncManager.deleteLocalRecord(record.didaId);
+        if (deleted) {
+            new Notice("同步记录已移除");
+            this.renderTaskList();
+        }
     }
 
     async handleNoteRecordForcePull(record: DidaNoteSyncRecord) {
