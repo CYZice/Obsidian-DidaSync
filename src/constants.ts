@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS = {
     enableNativeTaskSync: true,
     nativeTaskAutoSyncTags: "",
     nativeTaskAutoSyncMarkers: "",
+    nativeTaskRemarkFormat: "--- ${remark}",
     taskNoteSyncTargetBlockHeader: "> [!todo]",
     taskNoteSyncFolder: "DidaSync",
     taskNoteSyncPathPatterns: {

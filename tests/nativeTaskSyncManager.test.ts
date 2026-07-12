@@ -19,9 +19,11 @@ async function run() {
     };
 
     const { NativeTaskSyncManager } = require("../src/managers/NativeTaskSyncManager");
-    const manager = new NativeTaskSyncManager({} as any);
+    const manager = new NativeTaskSyncManager({ settings: { nativeTaskRemarkFormat: "--- ${remark}" } } as any);
     const content = [
         "- [ ] Plain task 📅 2026-06-24 🔴",
+        "   --- https://example.com/note",
+        "   --- second note",
         "  - [x] Timed linked [🔗Dida](obsidian://dida-task?didaId=abc123) [09:00 - 10:30] 📅 2026-06-25 🔁 every week",
         "```",
         "- [ ] ignored in code",
@@ -33,6 +35,7 @@ async function run() {
     const tasks = manager.detectNativeTasks(content, "Daily.md");
     assert.equal(tasks.length, 3);
     assert.equal(tasks[0].title, "Plain task");
+    assert.equal(tasks[0].remark, "https://example.com/note\nsecond note");
     assert.equal(tasks[0].priority, 5);
     assert.equal(tasks[0].taskDate, "2026-06-24");
     assert.equal(tasks[1].isCompleted, true);
@@ -55,6 +58,10 @@ async function run() {
     assert.equal(manager.lineMatchesAutoSyncMarker("- [ ] Plain task #dida", "dida"), true);
     assert.equal(manager.lineMatchesAutoSyncMarker("- [ ] Plain task 🚀", "🚀"), true);
     assert.equal(manager.lineMatchesAutoSyncMarker("- [ ] Plain task dida", "dida"), false);
+    assert.equal(manager.extractRemarkForTask(["- [ ] Task", "  %% custom note"], 0, "", "%% ${remark}"), "custom note");
+    assert.equal(manager.extractRemarkForTask(["- [ ] Task", "  --- note", "  - [ ] child"], 0, "", "--- ${remark}"), "note");
+    assert.equal(manager.extractRemarkForTask(["- [ ] Task", "--- 多少度", "--- 是的是的是"], 0, "", "--- ${remark}"), "多少度\n是的是的是");
+    assert.equal(manager.extractRemarkForTask(["- [ ] Task", "  --- note"], 0, "", ""), "");
     assert.ok(manager.withDidaLink(content, 0, "new123").split("\n")[0].includes("didaId=new123"));
     assert.equal(manager.withDidaLink(content, 1, "new123"), content);
 

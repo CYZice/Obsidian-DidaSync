@@ -17,6 +17,7 @@ export interface NativeTask {
     isAllDay: boolean;
     priority: number;
     repeatFlag: string | null;
+    remark: string;
 }
 
 export class NativeTaskSyncManager {
@@ -53,6 +54,7 @@ export class NativeTaskSyncManager {
             lines = content.split("\n");
         let inCodeBlock = false,
             codeBlockLang = "";
+        const remarkFormat = this.plugin?.settings?.nativeTaskRemarkFormat || "";
         
         for (let i = 0; i < lines.length; i++) {
             var line = lines[i],
@@ -92,13 +94,54 @@ export class NativeTaskSyncManager {
                             dueDate: parsed.dueDate,
                             isAllDay: parsed.isAllDay,
                             priority: parsed.priority,
-                            repeatFlag: parsed.repeatFlag
+                            repeatFlag: parsed.repeatFlag,
+                            remark: this.extractRemarkForTask(lines, i, parsed.indent, remarkFormat)
                         });
                     }
                 }
             }
         }
         return tasks;
+    }
+
+    extractRemarkForTask(lines: string[], taskLineIndex: number, taskIndent: string = "", remarkFormat: string | null | undefined = this.plugin?.settings?.nativeTaskRemarkFormat): string {
+        const parser = this.buildRemarkParser(remarkFormat);
+        if (!parser) return "";
+
+        const remarks: string[] = [];
+        for (let i = taskLineIndex + 1; i < lines.length; i++) {
+            const line = lines[i] || "";
+            if (parseTaskLine(line)) break;
+            if (line.trim() === "") {
+                if (remarks.length > 0) remarks.push("");
+                continue;
+            }
+            const remark = parser(line);
+            if (remark === null) break;
+            remarks.push(remark);
+        }
+
+        return remarks.join("\n").trim();
+    }
+
+    private buildRemarkParser(remarkFormat: string | null | undefined): ((line: string) => string | null) | null {
+        const format = String(remarkFormat || "").trim();
+        if (!format) return null;
+        const token = "${remark}";
+        const tokenIndex = format.indexOf(token);
+        if (tokenIndex === -1) return null;
+
+        const before = format.slice(0, tokenIndex);
+        const after = format.slice(tokenIndex + token.length);
+        const regex = new RegExp(`^\\s*${this.escapeRegExp(before)}(.*?)${this.escapeRegExp(after)}\\s*$`);
+        return (line: string) => {
+            const match = line.match(regex);
+            return match ? match[1].trim() : null;
+        };
+    }
+
+    private escapeRegExp(value: string): string {
+        return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     }
 
     normalizeAutoSyncTags(rawTags: string | null | undefined): string[] {

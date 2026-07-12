@@ -259,6 +259,7 @@ export default class DidaSyncPlugin extends Plugin {
         if (!Array.isArray(this.settings.taskNoteSyncProjectKeys)) this.settings.taskNoteSyncProjectKeys = [];
         if (typeof this.settings.nativeTaskAutoSyncTags !== "string") this.settings.nativeTaskAutoSyncTags = "";
         if (typeof this.settings.nativeTaskAutoSyncMarkers !== "string") this.settings.nativeTaskAutoSyncMarkers = "";
+        if (typeof this.settings.nativeTaskRemarkFormat !== "string") this.settings.nativeTaskRemarkFormat = DEFAULT_SETTINGS.nativeTaskRemarkFormat;
         if (!this.settings.taskNoteSyncPathPatterns || typeof this.settings.taskNoteSyncPathPatterns !== "object") {
             this.settings.taskNoteSyncPathPatterns = { ...DEFAULT_SETTINGS.taskNoteSyncPathPatterns };
         } else {
@@ -1848,6 +1849,17 @@ export default class DidaSyncPlugin extends Plugin {
                                             }
                                         }
                                     }
+                                    if (nativeTask.remark && (task.content !== nativeTask.remark || task.desc !== nativeTask.remark)) {
+                                        task.content = nativeTask.remark;
+                                        task.desc = nativeTask.remark;
+                                        task.updatedAt = new Date().toISOString();
+                                        changed = true;
+                                        if (this.settings.accessToken) {
+                                            try {
+                                                await this.updateTaskInDidaList(task);
+                                            } catch (e) { }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1867,7 +1879,9 @@ export default class DidaSyncPlugin extends Plugin {
                                         dueDate: nativeTask.dueDate as any,
                                         isAllDay: nativeTask.isAllDay,
                                         priority: nativeTask.priority,
-                                        repeatFlag: nativeTask.repeatFlag as any
+                                        repeatFlag: nativeTask.repeatFlag as any,
+                                        content: nativeTask.remark,
+                                        desc: nativeTask.remark
                                     });
                                     if (!created?.id) continue;
 
@@ -1876,7 +1890,7 @@ export default class DidaSyncPlugin extends Plugin {
                                     this.settings.tasks.push({
                                         id: nativeTask.id,
                                         title: nativeTask.title,
-                                        content: "",
+                                        content: nativeTask.remark || "",
                                         completed: false,
                                         status: 0,
                                         didaId: created.id,
@@ -1896,7 +1910,7 @@ export default class DidaSyncPlugin extends Plugin {
                                         reminders: created.reminders || [],
                                         repeatFlag: created.repeatFlag || nativeTask.repeatFlag as any,
                                         priority: created.priority ?? nativeTask.priority,
-                                        desc: "",
+                                        desc: nativeTask.remark || "",
                                         projectColor: display.color || "#F18181",
                                         projectClosed: display.closed || false,
                                         projectPermission: display.permission || "write",
@@ -2627,6 +2641,7 @@ export default class DidaSyncPlugin extends Plugin {
             if (this.settings.accessToken) {
                 const parsedLine = parseTaskLine(line);
                 if (parsedLine) {
+                    const remark = this.getNativeTaskRemarkFromEditor(editor, cursor.line, parsedLine.indent);
                     if (!parsedLine.title) {
                         new Notice("任务内容不能为空");
                         return;
@@ -2640,14 +2655,16 @@ export default class DidaSyncPlugin extends Plugin {
                         dueDate: parsedLine.dueDate as any,
                         isAllDay: parsedLine.isAllDay,
                         priority: parsedLine.priority,
-                        repeatFlag: parsedLine.repeatFlag as any
+                        repeatFlag: parsedLine.repeatFlag as any,
+                        content: remark,
+                        desc: remark
                     });
                     if (created && created.id) {
                         editor.setLine(cursor.line, formatTaskLine(line, { didaId: created.id }));
                         const task: DidaTask = {
                             id: Date.now().toString(),
                             title: parsedLine.title,
-                            content: "",
+                            content: remark,
                             completed: false,
                             status: 0,
                             didaId: created.id,
@@ -2667,7 +2684,7 @@ export default class DidaSyncPlugin extends Plugin {
                             reminders: [],
                             repeatFlag: created.repeatFlag || parsedLine.repeatFlag as any,
                             priority: created.priority ?? parsedLine.priority,
-                            desc: "",
+                            desc: remark,
                             projectColor: "#F18181",
                             projectClosed: false,
                             projectPermission: "write",
@@ -2686,6 +2703,7 @@ export default class DidaSyncPlugin extends Plugin {
                 if (match) {
                     const indent = match[1];
                     let content = match[2].trim();
+                    const remark = this.getNativeTaskRemarkFromEditor(editor, cursor.line, indent);
                     if (content) {
                         const linkRegex = /\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=([^)]+)\)/;
                         const linkMatch = content.match(linkRegex);
@@ -2698,14 +2716,14 @@ export default class DidaSyncPlugin extends Plugin {
                             title = title.replace(/\[[^\]]*\]\([^)]*\)/g, "").trim();
                             title = title.replace(/\s+/g, " ").trim();
                             if (title) {
-                                const created = await this.createTaskDirectly(title);
+                                const created = await this.createTaskDirectly(title, { content: remark, desc: remark });
                                 if (created && created.id) {
                                     const newLine = indent + `- [ ] ${content} [🔗Dida](${`obsidian://dida-task?didaId=${created.id}`}) `;
                                     editor.setLine(cursor.line, newLine);
                                     const task: DidaTask = {
                                         id: Date.now().toString(),
                                         title: title,
-                                        content: "",
+                                        content: remark,
                                         completed: false,
                                         status: 0,
                                         didaId: created.id,
@@ -2724,7 +2742,7 @@ export default class DidaSyncPlugin extends Plugin {
                                         projectKind: "TASK",
                                         reminders: [],
                                         repeatFlag: null as any,
-                                        desc: "",
+                                        desc: remark,
                                         projectColor: "#F18181",
                                         projectClosed: false,
                                         projectPermission: "write",
@@ -2761,8 +2779,8 @@ export default class DidaSyncPlugin extends Plugin {
     async createTaskDirectly(title: string, metadata: Partial<DidaTask> = {}) {
         const data: any = {
             title: title,
-            content: "",
-            desc: ""
+            content: metadata.content || "",
+            desc: metadata.desc || metadata.content || ""
         };
         if (metadata.startDate !== undefined) data.startDate = metadata.startDate;
         if (metadata.dueDate !== undefined) data.dueDate = metadata.dueDate;
@@ -2782,6 +2800,17 @@ export default class DidaSyncPlugin extends Plugin {
             throw new Error(`API调用失败: ${res.status} - ${errText}`);
         } catch (e) {
             throw e;
+        }
+    }
+
+    getNativeTaskRemarkFromEditor(editor: Editor, lineNumber: number, taskIndent: string = ""): string {
+        try {
+            const lines: string[] = [];
+            const count = editor.lineCount();
+            for (let i = 0; i < count; i++) lines.push(editor.getLine(i));
+            return this.nativeTaskSyncManager.extractRemarkForTask(lines, lineNumber, taskIndent, this.settings.nativeTaskRemarkFormat);
+        } catch (e) {
+            return "";
         }
     }
 

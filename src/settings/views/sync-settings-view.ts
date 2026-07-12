@@ -118,6 +118,17 @@ export class SyncSettingsView extends AbstractSettingsView {
                     await this.plugin.saveSettings();
                 }));
 
+        new Setting(containerEl)
+            .setName("原生任务备注格式")
+            .setDesc('用于识别任务下一行的备注内容，必须包含 ${remark}。例如 "--- ${remark}"、"%% ${remark}" 或 "-- ${remark}"；留空则关闭备注同步。')
+            .addText((text) => text
+                .setPlaceholder("--- ${remark}")
+                .setValue(this.plugin.settings.nativeTaskRemarkFormat || "")
+                .onChange(async (value) => {
+                    this.plugin.settings.nativeTaskRemarkFormat = value;
+                    await this.plugin.saveSettings();
+                }));
+
         containerEl.createEl("h3", { text: "任务同步到笔记设置" });
 
         const noteSyncInfo = containerEl.createDiv("dida-settings-info dida-settings-info--primary");
