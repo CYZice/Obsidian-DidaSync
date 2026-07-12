@@ -218,6 +218,9 @@ export interface DidaSyncSettings {
     autoCleanInterval: number; // in months
 
     enableNativeTaskSync: boolean;
+    nativeTaskAutoSyncTags: string;
+    nativeTaskAutoSyncMarkers: string;
+    nativeTaskRemarkFormat: string;
 
     // Task note sync settings
     taskNoteSyncTargetBlockHeader: string;
@@ -300,6 +303,9 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     autoCleanCompletedTasks: false,
     autoCleanInterval: 1,
     enableNativeTaskSync: true,
+    nativeTaskAutoSyncTags: "",
+    nativeTaskAutoSyncMarkers: "",
+    nativeTaskRemarkFormat: "--- ${remark}",
     taskNoteSyncTargetBlockHeader: "> [!todo]",
     taskNoteSyncFolder: "DidaSync",
     taskNoteSyncPathPatterns: {

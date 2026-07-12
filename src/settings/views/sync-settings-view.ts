@@ -93,6 +93,39 @@ export class SyncSettingsView extends AbstractSettingsView {
                     await this.plugin.saveSettings();
                 }));
 
+        new Setting(containerEl)
+            .setName("原生任务自动同步标签")
+            .setDesc('填写后，包含这些标签的文件里新增 "- [ ]" 任务会自动同步到滴答清单并回写链接。多个标签用空格或逗号分隔；留空则关闭文件级自动同步。')
+            .addText((text) => text
+                .setPlaceholder("#dida")
+                .setValue(this.plugin.settings.nativeTaskAutoSyncTags || "")
+                .onChange(async (value) => {
+                    this.plugin.settings.nativeTaskAutoSyncTags = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName("原生任务行自动同步标记")
+            .setDesc('填写后，任务行内包含这些标签或符号的 "- [ ]" 任务会自动同步到滴答清单并回写链接。多个标记用空格或逗号分隔；留空则关闭行级自动同步。')
+            .addText((text) => text
+                .setPlaceholder("#dida 🚀")
+                .setValue(this.plugin.settings.nativeTaskAutoSyncMarkers || "")
+                .onChange(async (value) => {
+                    this.plugin.settings.nativeTaskAutoSyncMarkers = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName("原生任务备注格式")
+            .setDesc('用于识别任务下一行的备注内容，必须包含 ${remark}。例如 "--- ${remark}"、"%% ${remark}" 或 "-- ${remark}"；留空则关闭备注同步。')
+            .addText((text) => text
+                .setPlaceholder("--- ${remark}")
+                .setValue(this.plugin.settings.nativeTaskRemarkFormat || "")
+                .onChange(async (value) => {
+                    this.plugin.settings.nativeTaskRemarkFormat = value;
+                    await this.plugin.saveSettings();
+                }));
+
         containerEl.createEl("h3", { text: "滴答笔记同步设置" });
 
         const didaNoteInfo = containerEl.createDiv("dida-settings-info dida-settings-info--primary");

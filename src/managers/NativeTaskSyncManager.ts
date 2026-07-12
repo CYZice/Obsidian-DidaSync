@@ -1,5 +1,5 @@
 import DidaSyncPlugin from "../main";
-import { parseTaskLine } from "../taskLineFormat";
+import { formatTaskLine, parseTaskLine } from "../taskLineFormat";
 
 export interface NativeTask {
     id: string;
@@ -17,6 +17,7 @@ export interface NativeTask {
     isAllDay: boolean;
     priority: number;
     repeatFlag: string | null;
+    remark: string;
 }
 
 export class NativeTaskSyncManager {
@@ -53,6 +54,7 @@ export class NativeTaskSyncManager {
             lines = content.split("\n");
         let inCodeBlock = false,
             codeBlockLang = "";
+        const remarkFormat = this.plugin?.settings?.nativeTaskRemarkFormat || "";
         
         for (let i = 0; i < lines.length; i++) {
             var line = lines[i],
@@ -92,13 +94,118 @@ export class NativeTaskSyncManager {
                             dueDate: parsed.dueDate,
                             isAllDay: parsed.isAllDay,
                             priority: parsed.priority,
-                            repeatFlag: parsed.repeatFlag
+                            repeatFlag: parsed.repeatFlag,
+                            remark: this.extractRemarkForTask(lines, i, parsed.indent, remarkFormat)
                         });
                     }
                 }
             }
         }
         return tasks;
+    }
+
+    extractRemarkForTask(lines: string[], taskLineIndex: number, taskIndent: string = "", remarkFormat: string | null | undefined = this.plugin?.settings?.nativeTaskRemarkFormat): string {
+        const parser = this.buildRemarkParser(remarkFormat);
+        if (!parser) return "";
+
+        const remarks: string[] = [];
+        for (let i = taskLineIndex + 1; i < lines.length; i++) {
+            const line = lines[i] || "";
+            if (parseTaskLine(line)) break;
+            if (line.trim() === "") {
+                if (remarks.length > 0) remarks.push("");
+                continue;
+            }
+            const remark = parser(line);
+            if (remark === null) break;
+            remarks.push(remark);
+        }
+
+        return remarks.join("\n").trim();
+    }
+
+    private buildRemarkParser(remarkFormat: string | null | undefined): ((line: string) => string | null) | null {
+        const format = String(remarkFormat || "").trim();
+        if (!format) return null;
+        const token = "${remark}";
+        const tokenIndex = format.indexOf(token);
+        if (tokenIndex === -1) return null;
+
+        const before = format.slice(0, tokenIndex);
+        const after = format.slice(tokenIndex + token.length);
+        const regex = new RegExp(`^\\s*${this.escapeRegExp(before)}(.*?)${this.escapeRegExp(after)}\\s*$`);
+        return (line: string) => {
+            const match = line.match(regex);
+            return match ? match[1].trim() : null;
+        };
+    }
+
+    private escapeRegExp(value: string): string {
+        return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+
+    normalizeAutoSyncTags(rawTags: string | null | undefined): string[] {
+        return this.normalizeAutoSyncMarkers(rawTags)
+            .map(tag => tag.startsWith("#") ? tag : `#${tag}`);
+    }
+
+    normalizeAutoSyncMarkers(rawMarkers: string | null | undefined): string[] {
+        return String(rawMarkers || "")
+            .split(/[\s,，]+/)
+            .map(tag => tag.trim())
+            .filter(Boolean)
+            .map(tag => tag.toLowerCase());
+    }
+
+    fileMatchesAutoSyncTags(_content: string, rawTags: string | null | undefined, cache?: any): boolean {
+        const targetTags = this.normalizeAutoSyncTags(rawTags);
+        if (targetTags.length === 0) return false;
+
+        const foundTags = new Set<string>();
+        const addTag = (value: unknown) => {
+            if (typeof value !== "string") return;
+            const trimmed = value.trim();
+            if (!trimmed) return;
+            foundTags.add((trimmed.startsWith("#") ? trimmed : `#${trimmed}`).toLowerCase());
+        };
+
+        const frontmatterTags = cache?.frontmatter?.tags ?? cache?.frontmatter?.tag;
+        if (Array.isArray(frontmatterTags)) frontmatterTags.forEach(addTag);
+        else if (typeof frontmatterTags === "string") frontmatterTags.split(/[\s,，]+/).forEach(addTag);
+
+        if (Array.isArray(cache?.tags)) {
+            cache.tags.forEach((item: any) => addTag(item?.tag));
+        }
+
+        return targetTags.some(tag => foundTags.has(tag));
+    }
+
+    lineMatchesAutoSyncMarker(line: string, rawMarkers: string | null | undefined): boolean {
+        const markers = this.normalizeAutoSyncMarkers(rawMarkers);
+        if (markers.length === 0) return false;
+
+        const normalizedLine = line.toLowerCase();
+        return markers.some(marker => {
+            if (marker.startsWith("#") || /^[a-z0-9_/-]+$/i.test(marker)) {
+                const tag = marker.startsWith("#") ? marker : `#${marker}`;
+                return this.lineHasExactTag(normalizedLine, tag);
+            }
+            return normalizedLine.includes(marker);
+        });
+    }
+
+    private lineHasExactTag(line: string, tag: string): boolean {
+        const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return new RegExp(`(^|[\\s([{'"<])${escaped}(?=$|[\\s,，.。;；:：!?！？)\\]}'">])`).test(line);
+    }
+
+    withDidaLink(content: string, lineNumber: number, didaId: string): string {
+        const lines = content.split("\n");
+        if (lineNumber < 0 || lineNumber >= lines.length) return content;
+        const parsed = parseTaskLine(lines[lineNumber]);
+        if (!parsed || parsed.didaId) return content;
+        lines[lineNumber] = formatTaskLine(lines[lineNumber], { didaId });
+        return lines.join("\n");
     }
 
     generateTaskId(filePath: string, lineNumber: number, title: string): string {

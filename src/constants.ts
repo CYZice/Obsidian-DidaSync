@@ -11,6 +11,9 @@ export const DEFAULT_SETTINGS = {
     autoCleanCompletedTasks: false,
     autoCleanInterval: 1,
     enableNativeTaskSync: true,
+    nativeTaskAutoSyncTags: "",
+    nativeTaskAutoSyncMarkers: "",
+    nativeTaskRemarkFormat: "--- ${remark}",
     taskNoteSyncTargetBlockHeader: "> [!todo]",
     taskNoteSyncFolder: "DidaSync",
     taskNoteSyncPathPatterns: {
