@@ -24,6 +24,22 @@ const originalLoad = (Module as any)._load;
 
 async function run() {
     const { SyncManager } = require("../src/managers/SyncManager");
+    const pluginClassifiers = {
+        isNoteProjectLike(project: any) {
+            const kind = typeof project?.kind === "string" ? project.kind.trim().toUpperCase() : "";
+            const viewMode = typeof project?.viewMode === "string" ? project.viewMode.trim().toLowerCase() : "";
+            return kind === "NOTE" || viewMode === "note";
+        },
+        isNoteSyncTaskLike(task: any) {
+            if (!task || typeof task !== "object") return false;
+            if (task.kind === "NOTE" || task.projectKind === "NOTE") return true;
+            if (typeof task.projectViewMode === "string" && task.projectViewMode.trim().toLowerCase() === "note") return true;
+            return false;
+        },
+        isTaskListItem(task: any) {
+            return !this.isNoteSyncTaskLike(task);
+        }
+    };
 
     const localRepeatCopy = {
         id: "local-repeat-copy",
@@ -99,6 +115,7 @@ async function run() {
         mergeRemoteProjectsIntoCatalog() {
             return false;
         },
+        ...pluginClassifiers,
         updateStatusBar(status: string) {
             statuses.push(status);
         },
@@ -148,6 +165,7 @@ async function run() {
             }
         },
         mergeRemoteProjectsIntoCatalog() { return false; },
+        ...pluginClassifiers,
         updateStatusBar(status: string) { partialStatuses.push(status); },
         refreshTaskView() { },
         async saveSettings() { },
@@ -181,6 +199,7 @@ async function run() {
             }
         },
         mergeRemoteProjectsIntoCatalog() { return false; },
+        ...pluginClassifiers,
         app: { workspace: { getLeavesOfType() { return []; } } },
         updateStatusBar() { },
         refreshTaskView() { },

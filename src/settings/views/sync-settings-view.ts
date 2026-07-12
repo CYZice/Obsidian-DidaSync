@@ -24,22 +24,41 @@ export class SyncSettingsView extends AbstractSettingsView {
                 }));
 
         new Setting(containerEl)
-            .setName("显示归档项目")
-            .setDesc("选择是否在任务清单中显示已归档的项目。")
+            .setName("同步间隔")
+            .setDesc("自动同步间隔时间，单位为分钟。")
+            .addSlider((slider) => slider
+                .setLimits(5, 120, 5)
+                .setValue(this.plugin.settings.syncInterval)
+                .setDynamicTooltip()
+                .onChange(async (value) => {
+                    this.plugin.settings.syncInterval = value;
+                    await this.plugin.saveSettings();
+                    this.plugin.setupAutoSync();
+                }));
+
+        new Setting(containerEl)
+            .setName("手动同步任务")
+            .setDesc("立即执行任务双向同步。")
+            .addButton((button) => button
+                .setButtonText("开始同步")
+                .onClick(async () => {
+                    await this.plugin.manualSync();
+                }));
+
+        containerEl.createEl("h3", { text: "清单显示设置" });
+
+        new Setting(containerEl)
+            .setName("显示归档清单")
+            .setDesc("控制任务侧边栏和清单选择器是否显示已归档清单。")
             .addDropdown((dropdown) => dropdown
-                .addOption("false", "隐藏归档项目")
-                .addOption("true", "显示归档项目")
+                .addOption("false", "隐藏归档清单")
+                .addOption("true", "显示归档清单")
                 .setValue(this.plugin.settings.showArchivedProjects.toString())
                 .onChange(async (value) => {
                     this.plugin.settings.showArchivedProjects = value === "true";
                     await this.plugin.saveSettings();
                     this.plugin.refreshTaskView();
                 }));
-
-        containerEl.createEl("h3", { text: "清单显示设置" });
-
-        const projectVisibilityInfo = containerEl.createDiv("dida-settings-info dida-settings-info--primary");
-        projectVisibilityInfo.setText("隐藏后的清单不会出现在侧边栏任务清单中，也可以在导入笔记时选择仅同步侧边栏可见清单。");
 
         const configurableProjects = this.plugin.getAvailableProjectConfigs()
             .filter((project) => this.plugin.settings.showArchivedProjects || !project.isArchived)
@@ -57,28 +76,6 @@ export class SyncSettingsView extends AbstractSettingsView {
                         containerEl.empty();
                         this.render(containerEl);
                     }).open();
-                }));
-
-        new Setting(containerEl)
-            .setName("同步间隔")
-            .setDesc("自动从滴答清单同步的间隔时间（分钟）。")
-            .addSlider((slider) => slider
-                .setLimits(5, 120, 5)
-                .setValue(this.plugin.settings.syncInterval)
-                .setDynamicTooltip()
-                .onChange(async (value) => {
-                    this.plugin.settings.syncInterval = value;
-                    await this.plugin.saveSettings();
-                    this.plugin.setupAutoSync();
-                }));
-
-        new Setting(containerEl)
-            .setName("手动同步")
-            .setDesc("立即执行双向同步。")
-            .addButton((button) => button
-                .setButtonText("开始同步")
-                .onClick(async () => {
-                    await this.plugin.manualSync();
                 }));
 
         containerEl.createEl("h3", { text: "原生任务同步设置" });
@@ -127,6 +124,70 @@ export class SyncSettingsView extends AbstractSettingsView {
                 .onChange(async (value) => {
                     this.plugin.settings.nativeTaskRemarkFormat = value;
                     await this.plugin.saveSettings();
+                }));
+
+        containerEl.createEl("h3", { text: "滴答笔记同步设置" });
+
+        const didaNoteInfo = containerEl.createDiv("dida-settings-info dida-settings-info--primary");
+        didaNoteInfo.setText("将所选清单中的滴答笔记同步到 Obsidian，并在本地与远程之间保持内容更新。");
+
+        new Setting(containerEl)
+            .setName("启用滴答笔记同步")
+            .setDesc("启用后，可在侧边栏和命令面板中使用笔记同步功能。")
+            .addToggle((toggle) => toggle
+                .setValue(this.plugin.settings.enableDidaNoteSync)
+                .onChange(async (value) => {
+                    this.plugin.settings.enableDidaNoteSync = value;
+                    await this.plugin.saveSettings();
+                    this.plugin.refreshTaskView();
+                }));
+
+        new Setting(containerEl)
+            .setName("笔记保存位置")
+            .setDesc("每条滴答笔记会同步为一个 Markdown 文件；留空时保存到仓库根目录。")
+            .addText((text) => text
+                .setPlaceholder("DidaNotes")
+                .setValue(this.plugin.settings.didaNoteSyncFolder || "DidaNotes")
+                .onChange(async (value) => {
+                    this.plugin.settings.didaNoteSyncFolder = value.trim();
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName("同步清单")
+            .setDesc(`仅同步所选清单中的笔记；当前已选择 ${(this.plugin.settings.didaNoteSyncProjectIds || []).length} 个清单。`)
+            .addButton((button) => button
+                .setButtonText("选择清单")
+                .onClick(() => {
+                    new TaskNoteProjectPickerModal(
+                        this.app,
+                        this.plugin,
+                        this.plugin.settings.didaNoteSyncProjectIds || [],
+                        () => {
+                            containerEl.empty();
+                            this.render(containerEl);
+                        },
+                        {
+                            title: "选择滴答笔记同步清单",
+                            selectionLabel: "笔记同步清单",
+                            getProjectKey: (project) => project.id || "",
+                            getProjects: () => this.plugin.getNoteSyncProjectConfigs(),
+                            saveSelection: async (keys) => {
+                                this.plugin.settings.didaNoteSyncProjectIds = keys.filter(Boolean);
+                                await this.plugin.saveSettings();
+                                this.plugin.refreshTaskView();
+                            }
+                        }
+                    ).open();
+                }));
+
+        new Setting(containerEl)
+            .setName("立即执行笔记同步")
+            .setDesc("立即同步所选清单中的笔记；如本地内容已更新，将自动同步到远程。")
+            .addButton((button) => button
+                .setButtonText("同步笔记")
+                .onClick(async () => {
+                    await this.plugin.syncDidaNotes();
                 }));
 
         containerEl.createEl("h3", { text: "任务同步到笔记设置" });
@@ -275,7 +336,6 @@ export class SyncSettingsView extends AbstractSettingsView {
                         ).open();
                     });
             });
-
     }
 
     getTaskNoteProjectScopePreviewText(): string {

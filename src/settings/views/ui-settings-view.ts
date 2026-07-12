@@ -23,6 +23,17 @@ export class UISettingsView extends AbstractSettingsView {
             await this.plugin.saveSettings();
             this.plugin.refreshTaskView();
         }));
+        new Setting(containerEl).setName("显示时间线入口").setDesc("桌面端在任务视图顶部显示时间线弹窗入口；移动端始终隐藏。").addToggle(t => t.setValue(this.plugin.settings.showTimelineEntry !== false).onChange(async value => {
+            this.plugin.settings.showTimelineEntry = value;
+            await this.plugin.saveSettings();
+            this.plugin.updateOptionalEntryVisibility();
+            this.plugin.refreshTaskView();
+        }));
+        new Setting(containerEl).setName("显示番茄钟入口").setDesc("桌面端在任务视图顶部显示番茄钟入口；移动端始终隐藏。").addToggle(t => t.setValue(this.plugin.settings.showPomodoroEntry !== false).onChange(async value => {
+            this.plugin.settings.showPomodoroEntry = value;
+            await this.plugin.saveSettings();
+            this.plugin.refreshTaskView();
+        }));
         new Setting(containerEl).setName("默认视图模式").setDesc("右侧边栏打开任务清单时默认显示的视图类型").addDropdown(t => t.addOption("task", "任务列表").addOption("timeblock", "时间段视图").setValue(this.plugin.settings.defaultViewMode || "task").onChange(async t => {
             this.plugin.settings.defaultViewMode = t as any;
             await this.plugin.saveSettings();

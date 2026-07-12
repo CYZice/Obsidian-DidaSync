@@ -36,6 +36,9 @@ async function run() {
     const plugin: any = {
         settings: { tasks: [task] },
         getUserTimeZone() { return "Asia/Shanghai"; },
+        isNoteSyncTaskLike(task: any) {
+            return task?.kind === "NOTE" || task?.projectKind === "NOTE" || task?.projectViewMode === "note";
+        },
         saveSettingsCalls: 0,
         async saveSettings() { this.saveSettingsCalls++; },
         apiClient: {
@@ -273,6 +276,164 @@ async function run() {
     ]);
     assert.equal(reverseCompletedSubtask.status, 2);
     assert.equal(typeof reverseCompletedSubtask.completedTime, "string");
+
+    const convertedNotePlugin: any = {
+        settings: {
+            accessToken: "token",
+            tasks: [
+                {
+                    id: "active-local",
+                    didaId: "active-remote",
+                    title: "Active remote task",
+                    status: 0,
+                    projectId: "p1",
+                    projectName: "Project"
+                },
+                {
+                    id: "converted-local",
+                    didaId: "converted-note",
+                    title: "Converted note",
+                    status: 0,
+                    projectId: "p1",
+                    projectName: "Project"
+                },
+                {
+                    id: "converted-child",
+                    didaId: "converted-child-remote",
+                    title: "Converted child",
+                    status: 0,
+                    parentId: "converted-note",
+                    projectId: "p1",
+                    projectName: "Project"
+                },
+                {
+                    id: "note-local",
+                    didaId: "note-to-task",
+                    title: "Note to task",
+                    status: 0,
+                    projectId: "p1",
+                    projectName: "Project",
+                    kind: "NOTE"
+                }
+            ],
+            pendingSyncOperations: [
+                { localTaskId: "converted-local", didaId: "converted-note", type: "upsert" },
+                { localTaskId: "converted-child", didaId: "converted-child-remote", type: "upsert" }
+            ],
+            projectCatalog: [],
+            projects: [],
+            reverseCompletionMeta: { "converted-note": { missingStreak: 2 } },
+            syncConsistencyMeta: { "converted-note": { title: "Converted note" } },
+            remoteInboxProjectId: "inbox"
+        },
+        statuses: [] as string[],
+        saved: 0,
+        refreshed: 0,
+        updateStatusBar(value: string) { this.statuses.push(value); },
+        async saveSettings() { this.saved++; },
+        refreshTaskView() { this.refreshed++; },
+        isReverseUpdating: false,
+        isNoteProjectLike(project: any) {
+            return project?.kind === "NOTE" || project?.viewMode === "note";
+        },
+        mergeRemoteProjectsIntoCatalog(projectMap: Map<string, any>) {
+            this.settings.projectCatalog = Array.from(projectMap.values()).map((project) => ({
+                id: project.id,
+                name: project.name,
+                isArchived: project.closed === true,
+                isLocalOnly: false,
+                kind: project.kind,
+                viewMode: project.viewMode
+            }));
+            return true;
+        },
+        isNoteSyncTaskLike(task: any) {
+            return task?.kind === "NOTE" || task?.projectKind === "NOTE" || task?.projectViewMode === "note";
+        },
+        isTaskListItem(task: any) {
+            return !this.isNoteSyncTaskLike(task);
+        },
+        nativeTaskSyncManager: {
+            detectNativeTasks() { return []; }
+        },
+        app: {
+            vault: {
+                getMarkdownFiles() { return []; }
+            },
+            workspace: {
+                getLeavesOfType() { return []; }
+            }
+        },
+        apiClient: {
+            async makeAuthenticatedRequest(url: string) {
+                if (url.endsWith("/open/v1/project")) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        async json() {
+                            return [
+                                { id: "p1", name: "Project", closed: false, kind: "TASK", viewMode: "list" },
+                                { id: "note-p", name: "Notes", closed: false, kind: "NOTE", viewMode: "note" }
+                            ];
+                        },
+                        async text() { return ""; }
+                    };
+                }
+                if (url.includes("/project/p1/")) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        async json() {
+                            return [
+                                { id: "active-remote", title: "Active remote task", status: 0, kind: "TEXT" },
+                                { id: "converted-note", title: "Converted note", status: 0, kind: "NOTE" },
+                                { id: "note-to-task", title: "Note to task", status: 0, kind: "TEXT" }
+                            ];
+                        },
+                        async text() { return ""; }
+                    };
+                }
+                if (url.includes("/project/note-p/")) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        async json() { return []; },
+                        async text() { return "[]"; }
+                    };
+                }
+                if (url.includes("/project/inbox/") || url.endsWith("/open/v1/task")) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        async json() { return []; },
+                        async text() { return "[]"; }
+                    };
+                }
+                return {
+                    ok: false,
+                    status: 404,
+                    async json() { return {}; },
+                    async text() { return ""; }
+                };
+            }
+        }
+    };
+    const convertedNoteManager = new SyncManager(convertedNotePlugin);
+    (convertedNoteManager as any)._refreshReverseCompletionSeenMeta = () => { };
+    (convertedNoteManager as any)._scheduleSyncConsistencyFollowUp = () => { };
+    const convertedResult = await convertedNoteManager.syncFromDidaList();
+    assert.equal(convertedResult.outcome, "success");
+    assert.equal(convertedResult.cleanupPerformed, true);
+    assert.equal(convertedNotePlugin.settings.projectCatalog.some((project: any) => project.id === "note-p"), true);
+    const convertedNoteTask = convertedNotePlugin.settings.tasks.find((task: any) => task.didaId === "converted-note");
+    assert.equal(convertedNoteTask.kind, "NOTE");
+    assert.equal(convertedNotePlugin.isTaskListItem(convertedNoteTask), false);
+    const noteToTask = convertedNotePlugin.settings.tasks.find((task: any) => task.didaId === "note-to-task");
+    assert.equal(noteToTask.kind, "TEXT");
+    assert.equal(convertedNotePlugin.isTaskListItem(noteToTask), true);
+    assert.equal(convertedNotePlugin.settings.tasks.some((task: any) => task.didaId === "active-remote"), true);
+    assert.equal(convertedNotePlugin.settings.pendingSyncOperations.some((operation: any) => operation.didaId === "converted-note"), false);
+    assert.ok(convertedNotePlugin.refreshed >= 1);
 }
 
 run().then(() => {

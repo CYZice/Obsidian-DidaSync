@@ -63,6 +63,7 @@ async function run() {
         projectCatalog: [
             { id: "p1", name: "项目甲", isArchived: false, isLocalOnly: false },
             { id: "p1", name: "项目甲 duplicate", isArchived: false, isLocalOnly: false },
+            { id: "note-p", name: "Notes", isArchived: false, isLocalOnly: false, kind: "NOTE", viewMode: "note" },
             { id: "", name: "本地", isArchived: false, isLocalOnly: true }
         ],
         hiddenProjectKeys: ["id:inbox", "name:项目甲", "id:p1"],
@@ -76,12 +77,22 @@ async function run() {
 
     assert.deepEqual(
         plugin.normalizeProjectCatalog(plugin.settings.projectCatalog).map((entry: any) => entry.name),
-        ["项目甲", "本地"]
+        ["项目甲", "Notes", "本地"]
     );
+    assert.ok(plugin.getNoteSyncProjectConfigs().find((entry: any) => entry.id === "note-p"), "NOTE projects should be selectable for note sync");
+    assert.equal(plugin.getAvailableProjectConfigs().some((entry: any) => entry.id === "note-p"), false, "NOTE projects should stay out of task project choices");
     assert.equal(plugin.getProjectTaskCount({ id: "p1", name: "项目甲", isArchived: false, isLocalOnly: false }), 1);
     assert.equal(plugin.getProjectDeleteState({ id: "inbox", name: "收集箱", isArchived: false, isLocalOnly: false }).disabled, true);
     assert.equal(plugin.getProjectDeleteState({ id: "p1", name: "项目甲", isArchived: false, isLocalOnly: false }).disabled, true);
     assert.equal(plugin.getProjectDeleteState({ id: "empty", name: "空项目", isArchived: false, isLocalOnly: true }).disabled, false);
+    plugin.settings.didaNoteSyncProjectIds = ["inbox124125"];
+    assert.equal(plugin.normalizeProjectDisplayId("inbox124125"), "inbox");
+    assert.equal(plugin.areSameDidaProject("inbox124125", "inbox"), true);
+    assert.equal(plugin.isSelectedDidaNoteSyncProjectId("inbox"), true);
+    assert.deepEqual(
+        plugin.getProjectDisplayInfo("inbox124125"),
+        { id: "inbox", name: "收集箱", color: undefined, closed: undefined, viewMode: undefined, kind: undefined, permission: undefined, isLocalOnly: false }
+    );
 
     plugin.sanitizeHiddenProjectKeys();
     assert.equal(plugin.settings.hiddenProjectKeys.includes("id:inbox"), false);
@@ -89,10 +100,14 @@ async function run() {
 
     const changed = plugin.mergeRemoteProjectsIntoCatalog(new Map([
         ["p2", { id: "p2", name: "项目乙", closed: false }],
-        ["p3", { id: "p3", name: "归档", closed: true }]
+        ["p3", { id: "p3", name: "归档", closed: true }],
+        ["note-remote", { id: "note-remote", name: "Remote Notes", closed: false, kind: "NOTE", viewMode: "note" }]
     ]));
     assert.equal(changed, true);
     assert.ok(plugin.settings.projectCatalog.find((entry: any) => entry.id === "p2"));
+    assert.ok(plugin.settings.projectCatalog.find((entry: any) => entry.id === "note-remote"));
+    assert.equal(plugin.getAvailableProjectConfigs().some((entry: any) => entry.id === "note-remote"), false);
+    assert.ok(plugin.getNoteSyncProjectConfigs().find((entry: any) => entry.id === "note-remote"));
     assert.ok(plugin.settings.projectCatalog.find((entry: any) => entry.name === "本地")?.isLocalOnly);
 
     await plugin.applyLocalProjectRename({ id: "p1", name: "项目甲", isArchived: false, isLocalOnly: false }, "项目甲改名");

@@ -59,6 +59,19 @@ export class SyncManager {
         return projectId as string;
     }
 
+    private clearPendingOperationsForNoteItems() {
+        if (!Array.isArray(this.plugin.settings.pendingSyncOperations)) return 0;
+        const before = this.plugin.settings.pendingSyncOperations.length;
+        this.plugin.settings.pendingSyncOperations = this.plugin.settings.pendingSyncOperations.filter((operation: any) => {
+            if (!operation) return false;
+            const task = (this.plugin.settings.tasks || []).find((item: any) =>
+                item.id === operation.localTaskId || (!!operation.didaId && item.didaId === operation.didaId)
+            );
+            return !(task && this.plugin.isNoteSyncTaskLike && this.plugin.isNoteSyncTaskLike(task));
+        });
+        return before - this.plugin.settings.pendingSyncOperations.length;
+    }
+
     private async ensureRemoteInboxProjectId(): Promise<string> {
         const cached = this.plugin.settings.remoteInboxProjectId;
         if (cached && cached !== "inbox" && cached.startsWith("inbox")) return cached;
@@ -207,6 +220,16 @@ export class SyncManager {
 
     async queueOperation(task: DidaTask, type: PendingSyncOperationType, payload?: PendingSyncOperation["payload"]) {
         const operations = this.getPendingOperations();
+        if (this.plugin.isNoteSyncTaskLike && this.plugin.isNoteSyncTaskLike(task)) {
+            const remaining = operations.filter(operation =>
+                operation.localTaskId !== task.id && (!task.didaId || operation.didaId !== task.didaId)
+            );
+            if (remaining.length !== operations.length) {
+                this.plugin.settings.pendingSyncOperations = remaining;
+                await this.plugin.saveSettings();
+            }
+            return;
+        }
         const existing = operations.find(operation => operation.localTaskId === task.id);
         const next: PendingSyncOperation = {
             localTaskId: task.id,
@@ -254,6 +277,11 @@ export class SyncManager {
                 item.id === operation.localTaskId || (!!operation.didaId && item.didaId === operation.didaId)
             );
             try {
+                if (task && this.plugin.isNoteSyncTaskLike && this.plugin.isNoteSyncTaskLike(task)) {
+                    this.plugin.settings.pendingSyncOperations = this.getPendingOperations().filter(item => item !== operation);
+                    await this.plugin.saveSettings();
+                    continue;
+                }
                 if (operation.type === "delete") {
                     if (operation.didaId) {
                         await this.deleteTaskInDidaList(operation.didaId, operation.projectId || "inbox", false);
@@ -422,6 +450,7 @@ export class SyncManager {
             try {
                 this.plugin.updateStatusBar("同步中...");
                 for (const task of this.sortTasksForUpload(this.plugin.settings.tasks || [])) {
+                    if (this.plugin.isTaskListItem && !this.plugin.isTaskListItem(task)) continue;
                     if (!task.didaId && !this.hasPendingOperation(task)) await this.queueOperation(task, "upsert");
                 }
                 const flushed = await this.flushPendingOperations();
@@ -445,6 +474,7 @@ export class SyncManager {
     async syncNewTasksToDidaList(): Promise<SyncResult> {
         const result: SyncResult = { outcome: "success", uploaded: 0, downloaded: 0, failedScopes: [], failedOperations: [], cleanupPerformed: false };
         for (const task of this.sortTasksForUpload(this.plugin.settings.tasks || [])) {
+            if (this.plugin.isTaskListItem && !this.plugin.isTaskListItem(task)) continue;
             if (!task.didaId && !this.hasPendingOperation(task)) await this.queueOperation(task, "upsert");
         }
         const flushed = await this.flushPendingOperations();
@@ -513,7 +543,7 @@ export class SyncManager {
                         const previousRemoteInboxProjectId = this.plugin.settings.remoteInboxProjectId || "";
                         list.forEach(p => {
                             const localProjectId = this.normalizeRemoteProjectId(p.id);
-                            expectedProjects.add(localProjectId);
+                            if (!this.plugin.isNoteProjectLike(p)) expectedProjects.add(localProjectId);
                             projectMap.set(localProjectId, {
                                 id: localProjectId,
                                 name: p.name,
@@ -567,7 +597,7 @@ export class SyncManager {
                                         if (validPayload) {
                                             projectFetched = true;
                                             const localProjectId = this.normalizeRemoteProjectId(project.id);
-                                            successfulProjects.add(localProjectId);
+                                            if (!this.plugin.isNoteProjectLike(project)) successfulProjects.add(localProjectId);
                                             items.forEach(t => {
                                                 const proj = projectMap.get(localProjectId);
                                                 t.projectId = localProjectId;
@@ -658,7 +688,8 @@ export class SyncManager {
                         updatedCount++;
                     } else {
                         const local = this.plugin.settings.tasks[idx];
-                        if (this.hasPendingOperation(local)) continue;
+                        const remoteKind = typeof remote.kind === "string" ? remote.kind.trim().toUpperCase() : "";
+                        if (this.hasPendingOperation(local) && remoteKind !== "NOTE") continue;
                         let changed = false;
                         if (remote.title && remote.title !== local.title) {
                             const oldTitle = local.title;
@@ -812,6 +843,9 @@ export class SyncManager {
                 }
             }
 
+            const clearedNotePendingCount = this.clearPendingOperationsForNoteItems();
+            if (clearedNotePendingCount > 0) await this.plugin.saveSettings();
+
             const fullSnapshot = projectListSucceeded
                 && inboxSucceeded
                 && Array.from(expectedProjects).every(projectId => successfulProjects.has(projectId));
@@ -820,7 +854,7 @@ export class SyncManager {
             const extraCount = fullSnapshot ? await this.markExtraTasksAsCompleted(tasks) : 0;
             const nativeCount = fullSnapshot ? await this.markCompletedNativeTasksWithLinks(tasks) : 0;
             result.cleanupPerformed = fullSnapshot;
-            if (updatedCount > 0 || deletedCount > 0 || extraCount > 0 || nativeCount > 0) {
+            if (updatedCount > 0 || clearedNotePendingCount > 0 || deletedCount > 0 || extraCount > 0 || nativeCount > 0) {
                 this.plugin.refreshTaskView();
             }
             result.downloaded += updatedCount;
@@ -843,7 +877,7 @@ export class SyncManager {
 
     async syncDeletedTasks(tasks: any[]) {
         const remoteIds = new Set(tasks.map(t => t.id));
-        const toDelete = this.plugin.settings.tasks.filter(t => t.didaId && !this.hasPendingOperation(t)).filter(t => {
+        const toDelete = this.plugin.settings.tasks.filter(t => t.didaId && !this.hasPendingOperation(t) && !this.plugin.isNoteSyncTaskLike(t)).filter(t => {
             if (remoteIds.has(t.didaId as string)) return false;
             if (t.status === 2) {
                 if (t.items && Array.isArray(t.items) && t.items.length > 0) return false;
@@ -873,7 +907,7 @@ export class SyncManager {
 
     async markExtraTasksAsCompleted(tasks: any[]) {
         const remoteIds = new Set(tasks.map(t => t.id));
-        const extra = this.plugin.settings.tasks.filter(t => t.didaId && !this.hasPendingOperation(t)).filter(t => !remoteIds.has(t.didaId as string) && t.status !== 2);
+        const extra = this.plugin.settings.tasks.filter(t => t.didaId && !this.hasPendingOperation(t) && !this.plugin.isNoteSyncTaskLike(t)).filter(t => !remoteIds.has(t.didaId as string) && t.status !== 2);
         if (extra.length === 0) return 0;
         let count = 0;
         const verifyBudget = { value: REVERSE_COMPLETION_MAX_VERIFY_PER_SYNC };
@@ -897,12 +931,18 @@ export class SyncManager {
     async markCompletedNativeTasksWithLinks(tasks: any[]) {
         if (!Array.isArray(tasks) || tasks.length === 0) return 0;
         const remoteIds = new Set(tasks.map(t => t.id));
+        const noteSyncDidaIds = new Set(
+            this.plugin.settings.tasks
+                .filter((task) => this.plugin.isNoteSyncTaskLike(task))
+                .map((task) => task.didaId)
+                .filter((id): id is string => typeof id === "string" && id.length > 0)
+        );
         let count = 0;
         try {
             for (const file of this.plugin.app.vault.getMarkdownFiles()) {
                 try {
                     const content = await this.plugin.app.vault.read(file);
-                    const nativeTasks = this.plugin.nativeTaskSyncManager.detectNativeTasks(content, file.path).filter(t => t.hasLink && t.didaId && !t.isCompleted && !remoteIds.has(t.didaId));
+                    const nativeTasks = this.plugin.nativeTaskSyncManager.detectNativeTasks(content, file.path).filter(t => t.hasLink && t.didaId && !t.isCompleted && !remoteIds.has(t.didaId) && !noteSyncDidaIds.has(t.didaId));
                     if (nativeTasks.length > 0) {
                         const lines = content.split("\n");
                         for (const nativeTask of nativeTasks) {
@@ -1223,6 +1263,7 @@ export class SyncManager {
     }
 
     async createTaskFromDida(task: any, project: any = null) {
+        if (task?.kind === "NOTE") return;
         let content = task.content || "";
         let desc = task.desc || "";
         if (task.items && Array.isArray(task.items) && task.items.length > 0) {

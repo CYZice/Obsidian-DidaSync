@@ -23,13 +23,14 @@ export interface DidaTask {
     reminders?: any[];
     repeatFlag?: string; // RRULE string
     priority?: number;
+    tags?: string[];
     status: number; // 0: Normal, 2: Completed
     completedTime?: string | null;
     projectId: string; // "inbox" or specific project ID
     projectName?: string; // Enriched field for display
     sortOrder?: number;
     items?: DidaSubTask[];
-    kind?: "TEXT" | "CHECKLIST";
+    kind?: "TEXT" | "NOTE" | "CHECKLIST";
 
     // Project related fields (enriched during sync)
     projectColor?: string;
@@ -52,6 +53,43 @@ export interface DidaTask {
     // Placement sync UI state
     syncPlacementPending?: boolean;
     syncPlacementError?: string;
+}
+
+export type DidaNoteSyncStatus = "synced" | "conflict" | "error" | "missing";
+export type DidaNoteSyncRunSource = "manual" | "auto" | "recovery";
+export type DidaNoteSyncRunStatus = "success" | "partial" | "failed" | "skipped";
+
+export interface DidaNoteSyncRecord {
+    didaId: string;
+    title: string;
+    path: string;
+    projectId?: string;
+    projectName?: string;
+    etag?: string | null;
+    remoteModifiedTime?: string | null;
+    lastSyncedContentHash: string;
+    lastSyncedAt: string;
+    status: DidaNoteSyncStatus;
+    remoteMissing?: boolean;
+    error?: string;
+}
+
+export interface DidaNoteSyncSummary {
+    outcome: DidaNoteSyncRunStatus;
+    fetched: number;
+    synced: number;
+    pushed: number;
+    conflicts: number;
+    skipped: number;
+    missing: number;
+    errors: string[];
+    summaryText: string;
+}
+
+export interface DidaNoteSyncRunState extends DidaNoteSyncSummary {
+    source: DidaNoteSyncRunSource;
+    startedAt: string;
+    finishedAt: string;
 }
 
 export interface CompletedTasksQuery {
@@ -85,6 +123,8 @@ export interface ProjectCatalogEntry {
     name: string;
     isArchived: boolean;
     isLocalOnly: boolean;
+    kind?: string;
+    viewMode?: string;
 }
 
 export interface PomodoroSettings {
@@ -192,6 +232,13 @@ export interface DidaSyncSettings {
     taskNoteSyncProjectScope: "all" | "visible" | "custom";
     taskNoteSyncProjectKeys: string[];
 
+    // Dida NOTE sync settings
+    enableDidaNoteSync: boolean;
+    didaNoteSyncFolder: string;
+    didaNoteSyncProjectIds: string[];
+    didaNoteSyncRecords: DidaNoteSyncRecord[];
+    didaNoteSyncLastRun: DidaNoteSyncRunState | null;
+
     // UI Settings
     projectCollapsedStates: { [key: string]: boolean };
     childTaskCollapsedStates: { [key: string]: boolean };
@@ -199,6 +246,8 @@ export interface DidaSyncSettings {
     defaultViewMode: "task" | "timeblock";
     defaultCalendarMode?: "day" | "month" | "year";
     defaultShowCompletedInCalendar?: boolean;
+    showTimelineEntry?: boolean;
+    showPomodoroEntry?: boolean;
     timeBlockHourHeight: number;
     timeBlockStartHour: number;
 
@@ -270,12 +319,19 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     taskNoteSyncUseRemoteQuery: true,
     taskNoteSyncProjectScope: "all",
     taskNoteSyncProjectKeys: [],
+    enableDidaNoteSync: false,
+    didaNoteSyncFolder: "DidaNotes",
+    didaNoteSyncProjectIds: [],
+    didaNoteSyncRecords: [],
+    didaNoteSyncLastRun: null,
     projectCollapsedStates: {},
     childTaskCollapsedStates: {},
     projectOrder: [],
     defaultViewMode: "task",
     defaultCalendarMode: "day",
     defaultShowCompletedInCalendar: false,
+    showTimelineEntry: true,
+    showPomodoroEntry: true,
     timeBlockHourHeight: 80,
     timeBlockStartHour: 0,
     pomodoroSettings: {

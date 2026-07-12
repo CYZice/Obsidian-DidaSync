@@ -160,6 +160,12 @@ async function run() {
     assert.deepEqual(JSON.parse(requests[1].body), { fromProjectId: "inbox", toProjectId: "p2", taskId: "task-2" });
 
     requests.length = 0;
+    queuedResponses = [{ status: 200, text: "[]", json: [] }];
+    await client.filterTasks({ kind: ["NOTE"], status: [0], projectIds: ["p-note"] });
+    assert.equal(requests.at(-1).url, "https://api.dida365.com/open/v1/task/filter");
+    assert.deepEqual(JSON.parse(requests.at(-1).body), { projectIds: ["p-note"], status: [0], kind: ["NOTE"] });
+
+    requests.length = 0;
     queuedResponses = [{ status: 200, text: "{\"success\":true}", json: { success: true } }];
     await client.moveTask("p1", "inbox", "task-3");
     assert.deepEqual(JSON.parse(requests[0].body), [{ fromProjectId: "p1", toProjectId: "inbox", taskId: "task-3" }]);

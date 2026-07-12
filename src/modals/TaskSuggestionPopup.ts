@@ -39,6 +39,7 @@ export class TaskSuggestionPopup {
 
     getFilteredTasks() {
         return (this.plugin.settings.tasks || []).filter(t => {
+            if (this.plugin.isTaskListItem && !this.plugin.isTaskListItem(t)) return false;
             const isCompleted = t.completed === true || t.completed === 2 || t.status === 2;
             const isArchived = t.projectClosed === true;
 

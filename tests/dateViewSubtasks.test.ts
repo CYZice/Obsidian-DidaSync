@@ -87,6 +87,18 @@ async function run() {
                     isLocalOnly: false
                 };
             },
+            buildDefaultCompletedTaskQuery() {
+                return {};
+            },
+            isNoteSyncTaskLike(task: any) {
+                if (!task || typeof task !== "object") return false;
+                if (task.kind === "NOTE" || task.projectKind === "NOTE") return true;
+                if (typeof task.projectViewMode === "string" && task.projectViewMode.trim().toLowerCase() === "note") return true;
+                return false;
+            },
+            isTaskListItem(task: any) {
+                return !this.isNoteSyncTaskLike(task);
+            },
             isProjectVisible() {
                 return true;
             }

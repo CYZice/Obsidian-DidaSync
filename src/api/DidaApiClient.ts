@@ -485,6 +485,13 @@ export class DidaApiClient {
         throw await res.text();
     }
 
+    async updateNote(noteId: string, noteData: any): Promise<any> {
+        return this.updateTask(noteId, {
+            ...noteData,
+            kind: "NOTE"
+        });
+    }
+
     async deleteTask(projectId: string, taskId: string): Promise<void> {
         const res = await this.makeAuthenticatedRequest(`https://api.dida365.com/open/v1/project/${projectId}/task/${taskId}`, {
             method: "DELETE"
@@ -582,6 +589,7 @@ export class DidaApiClient {
         priority?: number[];
         tag?: string[];
         status?: number[];
+        kind?: string[];
     } = {}): Promise<any[]> {
         const payload: any = {};
         if (Array.isArray(filters.projectIds) && filters.projectIds.length > 0) payload.projectIds = filters.projectIds;
@@ -590,6 +598,7 @@ export class DidaApiClient {
         if (Array.isArray(filters.priority) && filters.priority.length > 0) payload.priority = filters.priority;
         if (Array.isArray(filters.tag) && filters.tag.length > 0) payload.tag = filters.tag;
         if (Array.isArray(filters.status) && filters.status.length > 0) payload.status = filters.status;
+        if (Array.isArray(filters.kind) && filters.kind.length > 0) payload.kind = filters.kind;
         const res = await this.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task/filter", {
             method: "POST",
             body: JSON.stringify(payload)

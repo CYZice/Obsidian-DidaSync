@@ -1,7 +1,7 @@
 import { App, Editor, EditorPosition } from "obsidian";
 import { RRuleParser } from "../core/RRuleParser";
 import DidaSyncPlugin from "../main";
-import { DatePickerModal } from "../modals/DatePickerModal";
+import { TaskSchedulePicker } from "../modals/TaskSchedulePicker";
 import { parseTaskLine, tasksRepeatToRRule } from "../taskLineFormat";
 
 export class TaskActionMenu {
@@ -133,6 +133,66 @@ export class TaskActionMenu {
         document.body.appendChild(this.menuElement);
     }
 
+    getEditorElement() {
+        // @ts-ignore
+        if (this.editor?.cm?.dom) return this.editor.cm.dom as HTMLElement;
+        // @ts-ignore
+        if (this.editor?.getInputField && typeof this.editor.getInputField === "function") return this.editor.getInputField() as HTMLElement;
+        // @ts-ignore
+        if (this.editor?.dom) return this.editor.dom as HTMLElement;
+        return null;
+    }
+
+    normalizeRectFromCoords(coords: any) {
+        if (!coords || typeof coords.left !== "number" || typeof coords.top !== "number") return null;
+        const pageLike = coords.top > window.innerHeight + 80 && coords.top - (window.scrollY || 0) < window.innerHeight + 80;
+        const offsetX = pageLike ? (window.scrollX || 0) : 0;
+        const offsetY = pageLike ? (window.scrollY || 0) : 0;
+        const left = coords.left - offsetX;
+        const top = coords.top - offsetY;
+        const right = typeof coords.right === "number" ? coords.right - offsetX : left;
+        const bottom = typeof coords.bottom === "number" ? coords.bottom - offsetY : top + 22;
+        return { left, top, right, bottom };
+    }
+
+    getAnchorRect() {
+        if (!this.editor || !this.cursor) return null;
+
+        try {
+            let coords: any = null;
+            // @ts-ignore
+            if (this.editor.coordsAtPos && typeof this.editor.coordsAtPos === "function") {
+                try { coords = this.editor.coordsAtPos(this.cursor); } catch (t) { }
+            }
+            // @ts-ignore
+            if (!coords && this.editor.cm?.coordsAtPos) {
+                try {
+                    // @ts-ignore
+                    const offset = this.editor.posToOffset(this.cursor);
+                    // @ts-ignore
+                    coords = this.editor.cm.coordsAtPos(offset);
+                } catch (t) { }
+            }
+            // @ts-ignore
+            if (!coords && this.editor.cursorCoords && typeof this.editor.cursorCoords === "function") {
+                try { coords = this.editor.cursorCoords(true, "page"); } catch (t) { }
+            }
+            const rect = this.normalizeRectFromCoords(coords);
+            if (rect) return rect;
+        } catch (t) { }
+
+        const editorEl = this.getEditorElement();
+        if (!editorEl) return null;
+        const lines = Array.from(editorEl.querySelectorAll(".cm-line"));
+        const lineEl = lines[Math.max(0, Math.min(this.cursor.line, lines.length - 1))] as HTMLElement | undefined;
+        return lineEl?.getBoundingClientRect() || editorEl.getBoundingClientRect();
+    }
+
+    resetMenuVariantClasses() {
+        if (!this.menuElement) return;
+        this.menuElement.removeClass("task-action-menu-with-calendar", "task-action-menu-with-search");
+    }
+
     positionMenu() {
         if (!this.menuElement || !this.editor || !this.cursor) return;
 
@@ -143,31 +203,34 @@ export class TaskActionMenu {
                 visibility: "visible"
             });
 
-            let coords: any = null;
-            // @ts-ignore
-            if (this.editor.coordsAtPos && typeof this.editor.coordsAtPos === "function") {
-                try { coords = this.editor.coordsAtPos(this.cursor); } catch (t) { }
-            }
-            // @ts-ignore
-            if (!coords && this.editor.cm && this.editor.cm.coordsAtPos) {
-                try {
-                    // @ts-ignore
-                    const offset = this.editor.posToOffset(this.cursor);
-                    // @ts-ignore
-                    coords = this.editor.cm.coordsAtPos(offset);
-                } catch (t) { }
-            }
-            // @ts-ignore
-            if (!coords && this.editor.cursorCoords && typeof this.editor.cursorCoords === "function") {
-                try { coords = this.editor.cursorCoords(true, "window"); } catch (t) { }
-            }
+            const margin = 10;
+            const anchorRect = this.getAnchorRect();
+            const fallbackLeft = Math.max(margin, window.innerWidth / 2 - 120);
+            const fallbackTop = Math.max(margin, window.innerHeight / 2 - 120);
+            const anchorLeft = anchorRect?.left ?? fallbackLeft;
+            const anchorTop = anchorRect?.top ?? fallbackTop;
+            const anchorBottom = anchorRect?.bottom ?? fallbackTop + 22;
 
-            if (coords && coords.left !== undefined && coords.top !== undefined) {
-                this.menuElement.setCssStyles({
-                    left: `${coords.left}px`,
-                    top: `${coords.top + 20}px`
-                });
-            } else {
+            this.menuElement.setCssStyles({
+                left: `${anchorLeft}px`,
+                top: `${anchorBottom + 6}px`
+            });
+
+            const popupRect = this.menuElement.getBoundingClientRect();
+            let nextLeft = anchorLeft;
+            let nextTop = anchorBottom + 6;
+            if (nextTop + popupRect.height > window.innerHeight - margin) nextTop = anchorTop - popupRect.height - 6;
+            if (nextTop < margin) nextTop = margin;
+            if (nextTop + popupRect.height > window.innerHeight - margin) nextTop = Math.max(margin, window.innerHeight - popupRect.height - margin);
+            if (nextLeft + popupRect.width > window.innerWidth - margin) nextLeft = window.innerWidth - popupRect.width - margin;
+            if (nextLeft < margin) nextLeft = margin;
+
+            this.menuElement.setCssStyles({
+                left: `${Math.round(nextLeft)}px`,
+                top: `${Math.round(nextTop)}px`
+            });
+            if (Date.now() >= 0) return;
+            if (false) {
                 let editorEl: HTMLElement | null = null;
                 // @ts-ignore
                 if (this.editor.cm && this.editor.cm.dom) editorEl = this.editor.cm.dom;
@@ -385,7 +448,7 @@ export class TaskActionMenu {
     renderMainMenu() {
         if (!this.menuElement) return;
         this.menuElement.empty();
-        this.menuElement.removeClass("task-action-menu-with-calendar");
+        this.resetMenuVariantClasses();
         this.selectedIndex = 0;
         this.menuItems = [];
 
@@ -411,7 +474,7 @@ export class TaskActionMenu {
         const dateOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: "📅 到期日期" });
         dateOption.addEventListener("click", (e) => {
             e.preventDefault(); e.stopPropagation();
-            this.openSchedulePicker();
+            this.renderScheduleMenu();
         });
         this.menuItems.push(dateOption);
 
@@ -430,50 +493,60 @@ export class TaskActionMenu {
         this.menuItems.push(repeatOption);
 
         this.updateSelectedItem();
+        this.positionMenu();
     }
 
-    openSchedulePicker() {
+    renderScheduleMenu() {
+        if (!this.menuElement) return;
+
         const line = this.editor?.getLine(this.cursor?.line || 0) || "";
         const parsed = parseTaskLine(line);
-        const taskIndex = parsed?.didaId ? this.plugin.settings.tasks.findIndex(t => t.didaId === parsed.didaId) : -1;
-        const initialSchedule = parsed ? {
-            startDate: parsed.startDate,
-            dueDate: parsed.dueDate,
-            isAllDay: parsed.isAllDay,
-            repeatFlag: parsed.repeatFlag
-        } : null;
 
-        let scopeElement: HTMLElement | null = null;
-        // @ts-ignore
-        if (this.editor?.cm?.dom) scopeElement = this.editor.cm.dom;
-        // @ts-ignore
-        else if (this.editor?.getInputField && typeof this.editor.getInputField === "function") scopeElement = this.editor.getInputField();
-        // @ts-ignore
-        else if (this.editor?.dom) scopeElement = this.editor.dom;
-        this.close();
+        this.menuElement.empty();
+        this.resetMenuVariantClasses();
+        this.menuElement.addClass("task-action-menu-with-calendar");
+        this.selectedIndex = 0;
+        this.menuItems = [];
 
-        new DatePickerModal(
-            this.app,
-            initialSchedule?.startDate || initialSchedule?.dueDate || null,
-            async (startDate, isAllDay, dueDate, repeatFlag) => {
-                this.onAction("date", {
-                    startDate,
-                    dueDate: dueDate || startDate,
-                    isAllDay,
-                    repeatFlag: repeatFlag ?? null
-                });
+        this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "到期/时间段";
+        this.renderBackButton();
+
+        const body = this.menuElement.createDiv("dida-task-action-schedule-body");
+        const picker = new TaskSchedulePicker(this.app, {
+            startDate: parsed?.startDate || null,
+            dueDate: parsed?.dueDate || null,
+            isAllDay: typeof parsed?.isAllDay === "boolean" ? parsed.isAllDay : true,
+            repeatFlag: parsed?.repeatFlag || null,
+            isScheduled: !!(parsed?.startDate || parsed?.dueDate)
+        });
+        picker.render(body);
+        picker.renderActions(body, {
+            primaryLabel: "确认",
+            onCancel: () => {
+                this.renderMainMenu();
+                return false;
             },
-            null,
-            taskIndex >= 0 ? this.plugin : null,
-            taskIndex >= 0 ? taskIndex : null,
-            { initialSchedule, scopeElement }
-        ).open();
+            onSubmit: async value => {
+                this.close();
+                this.onAction("date", {
+                    startDate: value.startDate,
+                    dueDate: value.dueDate || value.startDate,
+                    isAllDay: value.isAllDay,
+                    repeatFlag: value.repeatFlag ?? null
+                });
+            }
+        });
+
+        const actionButtons = Array.from(body.querySelectorAll(".dida-task-schedule-actions button")) as HTMLElement[];
+        this.menuItems.push(...actionButtons);
+        this.updateSelectedItem();
+        this.positionMenu();
     }
 
     renderPriorityMenu() {
         if (!this.menuElement) return;
         this.menuElement.empty();
-        this.menuElement.removeClass("task-action-menu-with-calendar");
+        this.resetMenuVariantClasses();
         this.selectedIndex = 0;
         this.menuItems = [];
         this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "选择优先级";
@@ -499,7 +572,7 @@ export class TaskActionMenu {
     renderRepeatMenu() {
         if (!this.menuElement) return;
         this.menuElement.empty();
-        this.menuElement.removeClass("task-action-menu-with-calendar");
+        this.resetMenuVariantClasses();
         this.selectedIndex = 0;
         this.menuItems = [];
         this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "选择重复";
@@ -537,7 +610,7 @@ export class TaskActionMenu {
         if (!this.menuElement || !this.editor || !this.cursor) return;
 
         this.menuElement.empty();
-        this.menuElement.removeClass("task-action-menu-with-calendar");
+        this.resetMenuVariantClasses();
         this.menuElement.addClass("task-action-menu-with-search");
         this.selectedIndex = 0;
         this.menuItems = [];
@@ -557,13 +630,14 @@ export class TaskActionMenu {
         const searchInput = searchContainer.createEl("input", {
             type: "text",
             cls: "dida-search-input",
-            attr: { placeholder: "搜索任务或输入新任务标题（Enter确认）..." }
+            attr: { placeholder: "搜索任务..." }
         });
         searchInput.focus();
 
         const resultsContainer = this.menuElement.createEl("div", { cls: "dida-suggestions-container" });
 
         const tasks = (this.plugin.settings.tasks || []).filter(t => {
+            if (this.plugin.isTaskListItem && !this.plugin.isTaskListItem(t)) return false;
             if (t.parentId) return false;
             const isCompleted = t.completed === true || t.completed === 2 || t.status === 2;
             const isArchived = t.projectClosed === true;
@@ -623,6 +697,7 @@ export class TaskActionMenu {
             }
 
             this.updateSelectedItem();
+            this.positionMenu();
         };
 
         searchInput.addEventListener("input", (e) => {
