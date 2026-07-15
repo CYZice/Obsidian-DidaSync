@@ -227,9 +227,10 @@
     opacity: 0.6;
 }
 
-.dida-search-clear-btn {
+.dida-search-clear-btn,
+.dida-search-date-filter-btn,
+.dida-search-add-btn {
     position: absolute;
-    right: 12px;
     width: 20px;
     height: 20px;
     padding: 0;
@@ -241,14 +242,33 @@
     box-shadow: none !important;
 }
 
-.dida-search-clear-btn:hover {
+.dida-search-clear-btn:hover,
+.dida-search-date-filter-btn:hover,
+.dida-search-date-filter-btn.is-active,
+.dida-search-add-btn:hover {
     background: var(--background-modifier-hover);
     color: var(--text-normal);
 }
 
-.dida-search-clear-btn svg {
+.dida-search-clear-btn svg,
+.dida-search-date-filter-btn svg,
+.dida-search-add-btn svg {
     width: 14px;
     height: 14px;
+}
+
+.dida-search-clear-btn {
+    right: 12px;
+}
+
+.dida-search-date-filter-btn {
+    right: 34px;
+    color: var(--text-muted);
+}
+
+.dida-search-add-btn {
+    right: 56px;
+    color: var(--text-muted);
 }
 
 .dida-task-filter-bar {
@@ -262,7 +282,6 @@
     min-width: 0;
 }
 
-.dida-task-filter-bar .dida-task-date-filter-select,
 .dida-task-status-toggle {
     flex: 0 0 auto;
     height: 28px;
@@ -274,8 +293,6 @@
     transition: border-color 0.16s ease, color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
 }
 
-.dida-task-filter-bar .dida-task-date-filter-select:hover,
-.dida-task-filter-bar .dida-task-date-filter-select:focus,
 .dida-task-status-toggle:hover,
 .dida-task-status-toggle.is-completed {
     border-color: var(--background-modifier-border-hover);
@@ -293,7 +310,7 @@
 .dida-task-filter-bar .dida-search-input {
     height: 28px !important;
     font-size: 12px !important;
-    padding: 0 28px 0 10px;
+    padding: 0 82px 0 10px;
     border: 1px solid var(--background-modifier-border);
     border-radius: 6px;
     background: var(--background-primary);
@@ -314,15 +331,72 @@
     transform: translateY(-50%);
 }
 
-.dida-task-date-filter-select {
-    flex: 0 0 auto;
-    width: 58px;
-    max-width: 58px;
-    min-width: 58px;
-    padding: 0 18px 0 7px;
-    color: var(--text-muted);
+.dida-task-filter-bar .dida-search-date-filter-btn {
+    top: 50%;
+    right: 30px;
+    transform: translateY(-50%);
+}
+
+.dida-task-filter-bar .dida-search-add-btn {
+    top: 50%;
+    right: 54px;
+    transform: translateY(-50%);
+}
+
+.dida-task-filter-bar.is-task-composer-open {
+    align-items: flex-start;
+}
+
+.dida-task-filter-bar.is-task-composer-open .dida-search-input {
+    padding-right: 32px;
+}
+
+.dida-task-composer-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    gap: 6px;
+    margin-top: 6px;
+    min-width: 0;
+}
+
+.dida-task-composer-project,
+.dida-task-composer-date,
+.dida-task-composer-submit {
+    min-width: 0;
+    height: 28px;
     font-size: 12px;
-    opacity: 1;
+}
+
+.dida-task-composer-project {
+    padding: 0 22px 0 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dida-task-composer-date {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 0 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dida-task-composer-date svg {
+    width: 13px;
+    height: 13px;
+    flex: 0 0 auto;
+}
+
+.dida-task-composer-date span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dida-task-composer-submit {
+    padding: 0 10px;
 }
 
 .dida-task-status-toggle {
@@ -355,13 +429,30 @@
         min-width: 72px;
     }
 
-    .dida-task-date-filter-select {
-        width: 52px;
-        max-width: 52px;
-        min-width: 52px;
-        padding-left: 5px;
-        padding-right: 16px;
-        font-size: 10.5px;
+    .dida-task-filter-bar .dida-search-input {
+        padding-right: 78px;
+    }
+
+    .dida-task-filter-bar .dida-search-date-filter-btn {
+        right: 28px;
+    }
+
+    .dida-task-filter-bar .dida-search-add-btn {
+        right: 50px;
+    }
+
+    .dida-task-filter-bar.is-task-composer-open .dida-search-input {
+        padding-right: 32px;
+    }
+
+    .dida-task-composer-actions {
+        gap: 4px;
+    }
+
+    .dida-task-composer-project,
+    .dida-task-composer-date,
+    .dida-task-composer-submit {
+        font-size: 11px;
     }
 }
 
@@ -4820,6 +4911,94 @@ label+.dida-project-select {
 }
 
 .task-action-menu-inline.task-action-menu-with-calendar .dida-task-schedule-actions button {
+    height: 24px;
+    min-height: 24px;
+    padding: 0 6px;
+    font-size: 11px;
+}
+
+.dida-calendar-popup.dida-sidebar-date-popup {
+    width: min(252px, calc(100vw - 24px));
+    max-width: min(252px, calc(100vw - 24px));
+    padding: 8px;
+    max-height: calc(100vh - 32px);
+}
+
+.dida-calendar-popup.dida-sidebar-date-popup .dida-task-schedule-picker {
+    padding-top: 0;
+}
+
+.dida-calendar-popup.dida-sidebar-date-popup .dida-task-schedule-controls {
+    gap: 5px;
+    min-height: 24px;
+    padding: 0 0 6px;
+    margin-bottom: 4px;
+}
+
+.dida-calendar-popup.dida-sidebar-date-popup .dida-schedule-mode-switch button {
+    min-height: 22px;
+    padding: 1px 8px;
+    font-size: 11px;
+}
+
+.dida-calendar-popup.dida-sidebar-date-popup .dida-task-schedule-time-row {
+    gap: 3px;
+    font-size: 11px;
+}
+
+.dida-calendar-popup.dida-sidebar-date-popup .dida-task-schedule-time-select {
+    min-width: 58px;
+    height: 22px;
+    font-size: 11px;
+}
+
+.dida-calendar-popup.dida-sidebar-date-popup .dida-calendar-nav {
+    padding: 1px 0 3px;
+    min-height: 26px;
+}
+
+.dida-calendar-popup.dida-sidebar-date-popup .dida-calendar-nav button {
+    width: 22px;
+    height: 22px;
+    min-height: 22px;
+    padding: 0;
+}
+
+.dida-calendar-popup.dida-sidebar-date-popup .dida-calendar-month-label {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.dida-calendar-popup.dida-sidebar-date-popup .dida-calendar-week-header {
+    margin-bottom: 2px;
+}
+
+.dida-calendar-popup.dida-sidebar-date-popup .dida-calendar-week-day {
+    font-size: 10px;
+    line-height: 16px;
+    padding: 0;
+}
+
+.dida-calendar-popup.dida-sidebar-date-popup .dida-calendar-grid {
+    gap: 1px;
+    margin-bottom: 2px;
+}
+
+.dida-calendar-popup.dida-sidebar-date-popup .dida-task-schedule-calendar .dida-calendar-day {
+    width: 23px;
+    height: 23px;
+    min-height: 23px;
+    font-size: 11px;
+    line-height: 23px;
+}
+
+.dida-calendar-popup.dida-sidebar-date-popup .dida-task-schedule-actions {
+    margin-top: 6px;
+    gap: 4px;
+    justify-content: flex-end;
+}
+
+.dida-calendar-popup.dida-sidebar-date-popup .dida-task-schedule-actions button {
     height: 24px;
     min-height: 24px;
     padding: 0 6px;

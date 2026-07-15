@@ -10,7 +10,7 @@ export class SyncSettingsView extends AbstractSettingsView {
     }
 
     render(containerEl: HTMLElement): void {
-        containerEl.createEl("h3", { text: "同步设置" });
+        containerEl.createEl("h3", { text: "基础同步" });
 
         new Setting(containerEl)
             .setName("自动同步")
@@ -45,7 +45,7 @@ export class SyncSettingsView extends AbstractSettingsView {
                     await this.plugin.manualSync();
                 }));
 
-        containerEl.createEl("h3", { text: "清单显示设置" });
+        containerEl.createEl("h3", { text: "清单显示" });
 
         new Setting(containerEl)
             .setName("显示归档清单")
@@ -78,7 +78,7 @@ export class SyncSettingsView extends AbstractSettingsView {
                     }).open();
                 }));
 
-        containerEl.createEl("h3", { text: "原生任务同步设置" });
+        containerEl.createEl("h3", { text: "Obsidian 原生任务同步" });
 
         const nativeInfo = containerEl.createDiv("dida-settings-info dida-settings-info--primary");
         nativeInfo.setText('启用后可将 Obsidian 原生任务格式（- [ ]）同步到滴答清单，并在任务行追加跳转链接。');
@@ -93,7 +93,7 @@ export class SyncSettingsView extends AbstractSettingsView {
                     await this.plugin.saveSettings();
                 }));
 
-        containerEl.createEl("h3", { text: "滴答笔记同步设置" });
+        containerEl.createEl("h3", { text: "滴答笔记同步" });
 
         const didaNoteInfo = containerEl.createDiv("dida-settings-info dida-settings-info--primary");
         didaNoteInfo.setText("将所选清单中的滴答笔记同步到 Obsidian，并在本地与远程之间保持内容更新。");
@@ -157,7 +157,7 @@ export class SyncSettingsView extends AbstractSettingsView {
                     await this.plugin.syncDidaNotes();
                 }));
 
-        containerEl.createEl("h3", { text: "任务同步到笔记设置" });
+        containerEl.createEl("h3", { text: "任务写入笔记" });
 
         const noteSyncInfo = containerEl.createDiv("dida-settings-info dida-settings-info--primary");
         noteSyncInfo.setText("将某日、某周、某月、某年或自定义时间段内的任务汇总写入笔记。");

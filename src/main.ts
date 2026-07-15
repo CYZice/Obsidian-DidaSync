@@ -2581,7 +2581,6 @@ export default class DidaSyncPlugin extends Plugin {
 
     showTaskSuggestions(editor: Editor, cursor: EditorPosition, onSelect?: (task: DidaTask) => void) {
         try {
-            let activeView: any;
             const popup = new TaskSuggestionPopup(this.app, this, editor, cursor, (task) => {
                 if (onSelect) {
                     onSelect(task);
@@ -2603,110 +2602,56 @@ export default class DidaSyncPlugin extends Plugin {
                 padding: "16px"
             });
 
-            let editorDom: HTMLElement | null = null;
-            if ((editor as any).cm && (editor as any).cm.dom) editorDom = (editor as any).cm.dom;
-            else if ((editor as any).getInputField && typeof (editor as any).getInputField === "function") editorDom = (editor as any).getInputField();
-            else if ((editor as any).dom) editorDom = (editor as any).dom;
-            else {
-                activeView = this.app.workspace.getActiveViewOfType("markdown");
-                if (activeView && activeView.editor) editorDom = activeView.editor.cm?.dom || activeView.editor.dom;
+            const editorAny = editor as any;
+            let editorDom: HTMLElement | null = editorAny.cm?.dom || null;
+            if (!editorDom && typeof editorAny.getInputField === "function") editorDom = editorAny.getInputField();
+            if (!editorDom) editorDom = editorAny.dom || null;
+            if (!editorDom) {
+                const activeView: any = this.app.workspace.getActiveViewOfType("markdown");
+                editorDom = activeView?.editor?.cm?.dom || activeView?.editor?.dom || null;
             }
 
-            let lineEl: HTMLElement | null = null;
-            let fallbackTop = 100;
-            let fallbackLeft = 10;
+            const normalizeCoords = (coords: any) => {
+                if (!coords || typeof coords.left !== "number" || typeof coords.top !== "number") return null;
+                const pageLike = coords.top > window.innerHeight + 80 && coords.top - (window.scrollY || 0) < window.innerHeight + 80;
+                const offsetX = pageLike ? (window.scrollX || 0) : 0;
+                const offsetY = pageLike ? (window.scrollY || 0) : 0;
+                const left = coords.left - offsetX;
+                const top = coords.top - offsetY;
+                const right = typeof coords.right === "number" ? coords.right - offsetX : left;
+                const bottom = typeof coords.bottom === "number" ? coords.bottom - offsetY : top + 22;
+                return { left, top, right, bottom };
+            };
 
-            if (editorDom) {
-                const rect = editorDom.getBoundingClientRect();
-                let top = rect.top;
-                let left = rect.left;
-                if ((editor as any).cm && (editor as any).cm.cursorCoords) {
-                    try {
-                        const coords = (editor as any).cm.cursorCoords(cursor, "page");
-                        top = coords.top;
-                        left = coords.left;
-                    } catch (e) {
-                        top = rect.top + 20 * cursor.line + 20;
-                        left = rect.left + 20;
-                    }
-                } else {
-                    top = rect.top + 20 * cursor.line + 20;
-                    left = rect.left + 20;
-                }
-                fallbackTop = top;
-                fallbackLeft = left;
-
-                if ((editor as any).cm && (editor as any).cm.dom) {
-                    try {
-                        const lines = (editor as any).cm.dom.querySelectorAll(".cm-line");
-                        const currentLine = editor.getLine(cursor.line);
-                        let idx = -1;
-                        for (let i = 0; i < lines.length; i++) {
-                            if (lines[i].textContent.trim() === currentLine.trim()) {
-                                idx = i;
-                                break;
-                            }
-                        }
-                        if (idx === -1) {
-                            for (let i = 0; i < lines.length; i++) {
-                                if (lines[i].textContent.includes("@@")) {
-                                    idx = i;
-                                    break;
-                                }
-                            }
-                        }
-                        if (idx === -1) {
-                            const targetLine = cursor.line;
-                            let closest = -1;
-                            let dist = Infinity;
-                            for (let i = 0; i < lines.length; i++) {
-                                const offsetTop = (lines[i] as HTMLElement).offsetTop;
-                                const approxLine = Math.round(offsetTop / 32);
-                                const diff = Math.abs(approxLine - targetLine);
-                                if (diff < dist) {
-                                    dist = diff;
-                                    closest = i;
-                                }
-                            }
-                            if (closest !== -1) idx = closest;
-                        }
-                        lineEl = idx >= 0 ? lines[idx] : (lines.length > 0 ? lines[0] : null);
-                    } catch (e) { }
-                }
-
-                if (lineEl) {
-                    const lineRect = lineEl.getBoundingClientRect();
-                    el.setCssStyles({
-                        left: `${lineRect.left}px`,
-                        top: `${lineRect.bottom + 5}px`
-                    });
-                } else {
-                    el.setCssStyles({
-                        left: `${rect.left}px`,
-                        top: `${rect.bottom + 5}px`
-                    });
-                }
-                const popupRect = el.getBoundingClientRect();
-                const winHeight = window.innerHeight;
-                const winWidth = window.innerWidth;
-                if (popupRect.bottom > winHeight) {
-                    if (lineEl) {
-                        const lineRect = lineEl.getBoundingClientRect();
-                        const newTop = lineRect.top - popupRect.height - 5;
-                        el.setCssStyles({ top: `${Math.max(10, newTop)}px` });
-                    } else {
-                        const newTop = top - popupRect.height - 5;
-                        el.setCssStyles({ top: `${Math.max(10, newTop)}px` });
-                    }
-                }
-                if (popupRect.right > winWidth) el.setCssStyles({ left: `${winWidth - popupRect.width - 10}px` });
-                if (popupRect.left < 10) el.setCssStyles({ left: "10px" });
-            } else {
-                el.setCssStyles({
-                    left: `${fallbackLeft}px`,
-                    top: `${fallbackTop}px`
-                });
+            let anchor = null as ReturnType<typeof normalizeCoords> | DOMRect | null;
+            try {
+                if (typeof editorAny.coordsAtPos === "function") anchor = normalizeCoords(editorAny.coordsAtPos(cursor));
+            } catch (e) { }
+            if (!anchor && editorAny.cm?.coordsAtPos && typeof editorAny.posToOffset === "function") {
+                try { anchor = normalizeCoords(editorAny.cm.coordsAtPos(editorAny.posToOffset(cursor))); } catch (e) { }
             }
+            if (!anchor && editorAny.cm?.cursorCoords) {
+                try { anchor = normalizeCoords(editorAny.cm.cursorCoords(cursor, "page")); } catch (e) { }
+            }
+            if (!anchor && typeof editorAny.cursorCoords === "function") {
+                try { anchor = normalizeCoords(editorAny.cursorCoords(true, "page")); } catch (e) { }
+            }
+            if (!anchor && editorDom) anchor = editorDom.getBoundingClientRect();
+
+            const popupRect = el.getBoundingClientRect();
+            const margin = 10;
+            let nextLeft = anchor ? anchor.left : margin;
+            let nextTop = anchor ? anchor.bottom + 5 : 100;
+            if (nextTop + popupRect.height > window.innerHeight - margin) {
+                nextTop = (anchor ? anchor.top : 100) - popupRect.height - 5;
+            }
+            if (nextTop < margin) nextTop = margin;
+            if (nextLeft + popupRect.width > window.innerWidth - margin) nextLeft = window.innerWidth - popupRect.width - margin;
+            if (nextLeft < margin) nextLeft = margin;
+            el.setCssStyles({
+                left: `${Math.round(nextLeft)}px`,
+                top: `${Math.round(nextTop)}px`
+            });
         } catch (e) { }
     }
 
@@ -3317,7 +3262,7 @@ export default class DidaSyncPlugin extends Plugin {
         const task = this.settings.tasks.find(t => t.didaId === didaId);
         if (task) {
             this.openTaskViewWithCache().then(() => {
-                this.showTaskDetailsInViewOptimized(task);
+                this.showTaskDetailsInView(task);
             }).catch(() => {
                 this.showTaskDetailsInView(task);
             });
@@ -3326,104 +3271,27 @@ export default class DidaSyncPlugin extends Plugin {
         }
     }
 
-    showTaskDetailsInViewOptimized(task: DidaTask) {
-        try {
-            const el = document.querySelector(`[data-task-id="${task.id}"]`) as HTMLElement | null;
-            if (el) {
-                if (el.classList.contains("dida-timeline-task-item")) {
-                    const modal = this.getTimelineModalSafely();
-                    if (modal && modal.toggleTimelineTaskDetails) {
-                        modal.toggleTimelineTaskDetails(el, task);
-                        this.scrollToTaskItem(el);
-                    } else {
-                        const title = el.querySelector(".dida-timeline-task-title, .dida-task-title-clickable");
-                        if (title) {
-                            const evt = new Event("click", { bubbles: true });
-                            title.dispatchEvent(evt);
-                            this.scrollToTaskItem(el);
-                        }
-                    }
-                } else {
-                    const view = this.getTaskViewSafely();
-                    if (view && view.toggleTaskDetails) {
-                        view.toggleTaskDetails(el, task);
-                        this.scrollToTaskItem(el);
-                    } else {
-                        const title = el.querySelector(".dida-task-title, .dida-task-title-clickable");
-                        if (title) {
-                            const evt = new Event("click", { bubbles: true });
-                            title.dispatchEvent(evt);
-                            this.scrollToTaskItem(el);
-                        } else {
-                            this.showTaskDetailsInView(task);
-                        }
-                    }
-                }
+    showTaskDetailsInView(task: DidaTask, retried = false) {
+        const el = document.querySelector(`[data-task-id="${task.id}"]`) as HTMLElement | null;
+        if (!el) {
+            if (retried) return;
+            this.refreshTaskView();
+            requestAnimationFrame(() => this.showTaskDetailsInView(task, true));
+            return;
+        }
+        if (el.classList.contains("dida-timeline-task-item")) {
+            const modal = this.getTimelineModalSafely();
+            if (modal && modal.toggleTimelineTaskDetails) {
+                modal.toggleTimelineTaskDetails(el, task);
             } else {
-                this.refreshTaskView();
-                requestAnimationFrame(() => {
-                    const next = document.querySelector(`[data-task-id="${task.id}"]`) as HTMLElement | null;
-                    if (next) {
-                        if (next.classList.contains("dida-timeline-task-item")) {
-                            const modal = this.getTimelineModalSafely();
-                            if (modal && modal.toggleTimelineTaskDetails) {
-                                modal.toggleTimelineTaskDetails(next, task);
-                                this.scrollToTaskItem(next);
-                            } else {
-                                this.showTaskDetailsInView(task);
-                            }
-                        } else {
-                            const view = this.getTaskViewSafely();
-                            if (view && view.toggleTaskDetails) {
-                                view.toggleTaskDetails(next, task);
-                                this.scrollToTaskItem(next);
-                            } else {
-                                this.showTaskDetailsInView(task);
-                            }
-                        }
-                    } else {
-                        this.showTaskDetailsInView(task);
-                    }
-                });
+                (el.querySelector(".dida-timeline-task-title, .dida-task-title-clickable") as HTMLElement | null)?.click();
             }
-        } catch (e) {
-            this.showTaskDetailsInView(task);
+            this.scrollToTaskItem(el);
+            return;
         }
-    }
-
-    showTaskDetailsInView(task: DidaTask) {
-        for (const el of document.querySelectorAll(".dida-task-item, .dida-timeline-task-item")) {
-            if ((el as HTMLElement).getAttribute("data-task-id") === task.id) {
-                if ((el as HTMLElement).classList.contains("dida-timeline-task-item")) {
-                    const modal = this.getTimelineModalSafely();
-                    if (modal && modal.toggleTimelineTaskDetails) {
-                        modal.toggleTimelineTaskDetails(el as HTMLElement, task);
-                        this.scrollToTaskItem(el as HTMLElement);
-                    } else {
-                        const title = (el as HTMLElement).querySelector(".dida-timeline-task-title, .dida-task-title-clickable");
-                        if (title) {
-                            const evt = new Event("click", { bubbles: true });
-                            title.dispatchEvent(evt);
-                            this.scrollToTaskItem(el as HTMLElement);
-                        }
-                    }
-                } else {
-                    const title = (el as HTMLElement).querySelector(".dida-task-title, .dida-task-title-clickable");
-                    if (title) {
-                        const evt = new Event("click", { bubbles: true });
-                        title.dispatchEvent(evt);
-                        this.scrollToTaskItem(el as HTMLElement);
-                    } else {
-                        const view = this.getTaskViewSafely();
-                        if (view && view.toggleTaskDetails) {
-                            view.toggleTaskDetails(el as HTMLElement, task);
-                            this.scrollToTaskItem(el as HTMLElement);
-                        }
-                    }
-                }
-                return;
-            }
-        }
+        const view = this.getTaskViewSafely();
+        if (view && view.toggleTaskDetails) view.toggleTaskDetails(el, task);
+        this.scrollToTaskItem(el);
     }
 
     getTaskViewSafely(): TaskView | null {

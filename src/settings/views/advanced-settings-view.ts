@@ -8,7 +8,7 @@ export class AdvancedSettingsView extends AbstractSettingsView {
     }
 
     render(containerEl: HTMLElement): void {
-        containerEl.createEl("h3", { text: "自动清理设置" });
+        containerEl.createEl("h3", { text: "维护与数据" });
 
         const cleanInfo = containerEl.createDiv("dida-settings-info dida-settings-info--muted");
         cleanInfo.setText("说明：启用自动清理后，插件会在每次启动后延迟 30 秒，自动清理指定时间之前的已完成任务数据。该操作只影响本地数据，不会影响滴答清单云端数据。");
