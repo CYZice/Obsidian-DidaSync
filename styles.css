@@ -347,15 +347,40 @@
     align-items: flex-start;
 }
 
+.dida-task-filter-bar.is-task-composer-open .dida-search-input-wrap {
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    background: var(--background-primary);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+    overflow: hidden;
+    transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.dida-task-filter-bar.is-task-composer-open .dida-search-input-wrap:focus-within {
+    border-color: var(--interactive-accent);
+    box-shadow: 0 0 0 1px var(--interactive-accent);
+}
+
 .dida-task-filter-bar.is-task-composer-open .dida-search-input {
-    padding-right: 32px;
+    height: 36px !important;
+    padding: 0 36px 0 12px;
+    border: none !important;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    font-size: 14px !important;
+    outline: none;
+}
+
+.dida-task-filter-bar.is-task-composer-open .dida-search-clear-btn {
+    top: 18px;
 }
 
 .dida-task-composer-actions {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-    gap: 6px;
-    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 8px 8px;
     min-width: 0;
 }
 
@@ -368,9 +393,26 @@
 }
 
 .dida-task-composer-project {
-    padding: 0 22px 0 8px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    padding: 0;
+    border: none;
+    background: transparent !important;
+    color: var(--text-muted);
+    box-shadow: none !important;
+}
+
+.dida-task-composer-project:hover,
+.dida-task-composer-date:hover {
+    background: var(--background-modifier-hover) !important;
+    color: var(--text-normal);
+}
+
+.dida-task-composer-project svg {
+    width: 16px;
+    height: 16px;
 }
 
 .dida-task-composer-date {
@@ -379,6 +421,10 @@
     justify-content: center;
     gap: 4px;
     padding: 0 8px;
+    border: none;
+    background: transparent !important;
+    color: var(--interactive-accent);
+    box-shadow: none !important;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -395,7 +441,12 @@
     text-overflow: ellipsis;
 }
 
+.dida-task-composer-date.is-overdue {
+    color: var(--text-error);
+}
+
 .dida-task-composer-submit {
+    margin-left: auto;
     padding: 0 10px;
 }
 
@@ -442,11 +493,13 @@
     }
 
     .dida-task-filter-bar.is-task-composer-open .dida-search-input {
-        padding-right: 32px;
+        padding-right: 36px;
     }
 
     .dida-task-composer-actions {
         gap: 4px;
+        padding-right: 6px;
+        padding-left: 6px;
     }
 
     .dida-task-composer-project,

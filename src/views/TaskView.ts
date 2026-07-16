@@ -1282,8 +1282,7 @@ export class TaskView extends ItemView {
                 .setChecked(option.value === currentValue)
                 .onClick(() => this.applyTaskDateFilter(option.value)));
         });
-        const anchor = trigger.closest(".dida-search-input-wrap") as HTMLElement | null;
-        const rect = (anchor || trigger).getBoundingClientRect();
+        const rect = trigger.getBoundingClientRect();
         const menuWidth = 160;
         menu.showAtPosition({
             x: Math.round(Math.max(8, rect.right - menuWidth)),
@@ -1313,11 +1312,34 @@ export class TaskView extends ItemView {
         if (!start || Number.isNaN(start.getTime())) return "未设置日期";
 
         const today = new Date();
-        const isToday = start.getFullYear() === today.getFullYear()
-            && start.getMonth() === today.getMonth()
-            && start.getDate() === today.getDate();
-        if (schedule?.isAllDay) return isToday ? "今天" : `${start.getMonth() + 1}/${start.getDate()}`;
-        return `${isToday ? "今天" : `${start.getMonth() + 1}/${start.getDate()}`} ${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`;
+        today.setHours(0, 0, 0, 0);
+        const selectedDate = new Date(start);
+        selectedDate.setHours(0, 0, 0, 0);
+        const dayDiff = Math.round((selectedDate.getTime() - today.getTime()) / 86400000);
+        const weekdayLabel = ["日", "一", "二", "三", "四", "五", "六"][start.getDay()];
+        const startOfWeek = (date: Date) => {
+            const value = new Date(date);
+            value.setDate(value.getDate() - ((value.getDay() + 6) % 7));
+            return value.getTime();
+        };
+        const weekDiff = Math.round((startOfWeek(selectedDate) - startOfWeek(today)) / (7 * 86400000));
+        const dateLabel = dayDiff === 0 ? "今天"
+            : dayDiff === 1 ? "明天"
+                : dayDiff === 2 ? "后天"
+                    : weekDiff === 0 && dayDiff > 0 ? `周${weekdayLabel}`
+                        : weekDiff === 1 ? `下周${weekdayLabel}`
+                            : `${start.getMonth() + 1}月${start.getDate()}日`;
+        if (schedule?.isAllDay) return dateLabel;
+        return `${dateLabel} ${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`;
+    }
+
+    private isTaskComposerScheduleOverdue(): boolean {
+        const start = this.taskComposerSchedule?.startDate ? new Date(this.taskComposerSchedule.startDate) : null;
+        if (!start || Number.isNaN(start.getTime())) return false;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        start.setHours(0, 0, 0, 0);
+        return start.getTime() < today.getTime();
     }
 
     private closeTaskComposer(restoreSearch: boolean) {
@@ -1349,7 +1371,7 @@ export class TaskView extends ItemView {
             if (!this.isTaskComposerOpen || !scope.isConnected) return;
             const handler = (event: PointerEvent) => {
                 const target = event.target as HTMLElement | null;
-                if (!target || scope.contains(target) || target.closest(".dida-calendar-popup, .dida-compact-repeat-overlay")) return;
+                if (!target || scope.contains(target) || target.closest(".dida-schedule-popup-layer, .dida-compact-repeat-overlay")) return;
                 this.closeTaskComposer(true);
             };
             this.taskComposerOutsidePointerHandler = handler;
@@ -1563,22 +1585,39 @@ export class TaskView extends ItemView {
                 this.taskComposerProjectId = availableProjects[0].id;
             }
 
-            const composerActions = searchContainer.createDiv("dida-task-composer-actions");
-            const projectSelect = composerActions.createEl("select", {
-                cls: "dida-task-composer-project",
-                attr: { "aria-label": "所属项目", title: "所属项目" }
-            });
-            availableProjects.forEach(project => projectSelect.createEl("option", { value: project.id, text: project.name }));
-            projectSelect.value = this.taskComposerProjectId;
-            projectSelect.onchange = () => {
-                this.taskComposerProjectId = projectSelect.value;
+            const composerActions = searchInputWrap.createDiv("dida-task-composer-actions");
+            const projectBtn = composerActions.createEl("button", { cls: "dida-task-composer-project" });
+            projectBtn.type = "button";
+            const updateProjectButton = () => {
+                const project = availableProjects.find(item => item.id === this.taskComposerProjectId) || availableProjects[0];
+                projectBtn.title = `添加至清单：${project.name}`;
+                projectBtn.setAttribute("aria-label", projectBtn.title);
+                setIconElement(projectBtn, "list-plus");
+            };
+            updateProjectButton();
+            projectBtn.onclick = (event) => {
+                const menu = new Menu();
+                menu.setUseNativeMenu(false);
+                availableProjects.forEach(project => {
+                    menu.addItem(item => item
+                        .setTitle(project.name)
+                        .setIcon(this.plugin.getProjectIconName(project.id, project.name))
+                        .setChecked(project.id === this.taskComposerProjectId)
+                        .onClick(() => {
+                            this.taskComposerProjectId = project.id;
+                            updateProjectButton();
+                        }));
+                });
+                menu.showAtMouseEvent(event);
             };
 
             const dateBtn = composerActions.createEl("button", { cls: "dida-task-composer-date" });
             dateBtn.type = "button";
+            composerActions.insertBefore(dateBtn, projectBtn);
             dateBtn.title = "设置日期和时间";
             dateBtn.setAttribute("aria-label", dateBtn.title);
             setTextWithIcon(dateBtn, this.getTaskComposerScheduleLabel(), "calendar-days");
+            dateBtn.toggleClass("is-overdue", this.isTaskComposerScheduleOverdue());
             dateBtn.onclick = () => {
                 new DatePickerModal(
                     this.app,
@@ -1591,6 +1630,7 @@ export class TaskView extends ItemView {
                             repeatFlag: repeatFlag || null
                         };
                         setTextWithIcon(dateBtn, this.getTaskComposerScheduleLabel(), "calendar-days");
+                        dateBtn.toggleClass("is-overdue", this.isTaskComposerScheduleOverdue());
                     },
                     dateBtn,
                     null,
