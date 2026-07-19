@@ -4427,10 +4427,10 @@ export class TaskView extends ItemView {
     }
 
     formatPriorityLabel(priority: number): string {
-        if (priority === 5) return "🔴";
-        if (priority === 3) return "🟡";
-        if (priority === 1) return "🔵";
-        return "⚪";
+        if (priority === 5) return "🚩高";
+        if (priority === 3) return "🚩中";
+        if (priority === 1) return "🚩低";
+        return "无";
     }
 
     async cycleTaskPriority(index: number) {
@@ -4549,19 +4549,6 @@ export class TaskView extends ItemView {
                         if (parsed && parsed.didaId === task.didaId) {
                             lines[i] = formatTaskLine(line, { title: newTitle });
                             updated = updated || lines[i] !== line;
-                            continue;
-                        }
-                        if (line.includes(`[🔗Dida](obsidian://dida-task?didaId=${task.didaId})`)) {
-                            const prefixMatch = line.match(/^(\s*-\s*\[[ x]\]\s*)/);
-                            const linkMatch = line.match(/\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=[a-zA-Z0-9]+\)/);
-                            const dateMatch = line.match(/📅\s*\d{4}-\d{2}-\d{2}/);
-                            if (prefixMatch) {
-                                const textOnly = line.replace(/^\s*-\s*\[[ x]\]\s*/, "").replace(/\s*\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=[a-zA-Z0-9]+\)\s*/g, "").replace(/\s*\[[0-9]{1,2}:[0-9]{2}\s*-\s*[0-9]{1,2}:[0-9]{2}\]\s*/g, "").replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, "").replace(/\s*🔁\s*every[^📅🔴🟡🔵⚪]*/g, "").replace(/[🔴🟡🔵⚪]/g, "").trim();
-                                if (textOnly === oldTitle.trim()) {
-                                    lines[i] = formatTaskLine(line, { title: newTitle });
-                                    updated = true;
-                                }
-                            }
                         }
                     }
                     if (updated) {

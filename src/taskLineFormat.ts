@@ -12,6 +12,7 @@ export interface ParsedTaskLine {
     priority: number;
     repeatFlag: string | null;
     disconnected: boolean;
+    projectName: string | null;
 }
 
 export interface TaskLineMetadata {
@@ -24,15 +25,18 @@ export interface TaskLineMetadata {
     priority?: number;
     repeatFlag?: string | null;
     disconnected?: boolean;
+    projectName?: string | null;
 }
 
 const DIDA_LINK_RE = /\[[^\]]*Dida[^\]]*\]\(obsidian:\/\/dida-task\?didaId=([a-zA-Z0-9]+)\)/;
 const ANY_DIDA_LINK_RE = /\s*\[[^\]]*Dida[^\]]*\]\(obsidian:\/\/dida-task\?didaId=[a-zA-Z0-9]+\)\s*/g;
 const TIME_RANGE_RE = /\[(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\]/;
 const DUE_DATE_RE = /📅\s*(\d{4}-\d{2}-\d{2})/;
-const REPEAT_RE = /🔁\s*(every\s+[^📅🔴🟡🔵⚪]+)/i;
+const REPEAT_RE = /🔁\s*(every\s+.*?)(?=\s+(?:📅|🔴|🟡|🔵|⚪|🚩|🗑️|\^)|$)/i;
 const PRIORITY_RE = /🔴|🟡|🔵|⚪/g;
+const FLAG_PRIORITY_RE = /🚩\s*(高|中|低)(?:优先级)?/g;
 const DISCONNECTED_RE = /(?:^|\s)🗑️(?=\s|$)/;
+const PROJECT_RE = /(?:^|\s)\^(?:\[([^\]]+)\]|([^\s]+))/;
 
 export function parseTaskLine(line: string): ParsedTaskLine | null {
     const match = line.match(/^((?:\s*>\s*)*)(\s*)-\s*\[([ xX])\]\s*(.*)$/);
@@ -49,10 +53,12 @@ export function parseTaskLine(line: string): ParsedTaskLine | null {
     const timeRangeMatch = body.match(TIME_RANGE_RE);
     const dueDateMatch = body.match(DUE_DATE_RE);
     const repeatMatch = body.match(REPEAT_RE);
+    const projectMatch = body.match(PROJECT_RE);
 
     const priority = parsePriority(body);
     const repeatFlag = repeatMatch ? tasksRepeatToRRule(repeatMatch[1].trim()) : null;
     const disconnected = DISCONNECTED_RE.test(body);
+    const projectName = projectMatch ? projectMatch[1] || projectMatch[2] : null;
 
     let startDate: string | null = null;
     let dueDate: string | null = null;
@@ -83,13 +89,15 @@ export function parseTaskLine(line: string): ParsedTaskLine | null {
         .replace(TIME_RANGE_RE, " ")
         .replace(DUE_DATE_RE, " ")
         .replace(REPEAT_RE, " ")
+        .replace(FLAG_PRIORITY_RE, " ")
         .replace(PRIORITY_RE, " ")
         .replace(DISCONNECTED_RE, " ")
+        .replace(PROJECT_RE, " ")
         .replace(/\s+\d{4}-\d{2}-\d{2}\s*/g, " ")
         .replace(/\s+/g, " ")
         .trim();
 
-    return { quotePrefix, indent, checkbox, title, didaId, startDate, dueDate, isAllDay, priority, repeatFlag, disconnected };
+    return { quotePrefix, indent, checkbox, title, didaId, startDate, dueDate, isAllDay, priority, repeatFlag, disconnected, projectName };
 }
 
 export function formatTaskLine(line: string, metadata: TaskLineMetadata): string {
@@ -106,7 +114,8 @@ export function formatTaskLine(line: string, metadata: TaskLineMetadata): string
         isAllDay: metadata.isAllDay !== undefined ? metadata.isAllDay : parsed.isAllDay,
         priority: metadata.priority !== undefined ? metadata.priority : parsed.priority,
         repeatFlag: metadata.repeatFlag !== undefined ? metadata.repeatFlag : parsed.repeatFlag,
-        disconnected: metadata.disconnected !== undefined ? metadata.disconnected : parsed.disconnected
+        disconnected: metadata.disconnected !== undefined ? metadata.disconnected : parsed.disconnected,
+        projectName: metadata.projectName !== undefined ? metadata.projectName : parsed.projectName
     });
 }
 
@@ -122,7 +131,8 @@ export function formatTaskLineFromTask(task: DidaTask, indent: string = "", quot
         isAllDay: task.isAllDay === true,
         priority: task.priority || 0,
         repeatFlag: task.repeatFlag || null,
-        disconnected: false
+        disconnected: false,
+        projectName: task.projectName || null
     });
 }
 
@@ -153,8 +163,11 @@ function buildTaskLine(parts: ParsedTaskLine): string {
     const title = (parts.title || "").trim() || "无标题任务";
     const link = parts.didaId ? ` [🔗Dida](obsidian://dida-task?didaId=${parts.didaId})` : "";
     const disconnected = parts.disconnected && !parts.didaId ? " 🗑️" : "";
+    const project = parts.projectName
+        ? ` ^${/\s/.test(parts.projectName) ? `[${parts.projectName}]` : parts.projectName}`
+        : "";
     const metadata = formatMetadata(parts);
-    return `${parts.quotePrefix || ""}${parts.indent}- [${checkbox}] ${title}${link}${metadata}${disconnected}`.trimEnd();
+    return `${parts.quotePrefix || ""}${parts.indent}- [${checkbox}] ${title}${link}${metadata}${project}${disconnected}`.trimEnd();
 }
 
 function formatMetadata(parts: ParsedTaskLine): string {
@@ -196,6 +209,9 @@ function formatTime(value: string): string {
 }
 
 function parsePriority(text: string): number {
+    if (/🚩\s*高(?:优先级)?/.test(text)) return 5;
+    if (/🚩\s*中(?:优先级)?/.test(text)) return 3;
+    if (/🚩\s*低(?:优先级)?/.test(text)) return 1;
     if (/🔴/.test(text)) return 5;
     if (/🟡/.test(text)) return 3;
     if (/🔵/.test(text)) return 1;
@@ -204,9 +220,9 @@ function parsePriority(text: string): number {
 }
 
 function formatPriority(priority?: number): string {
-    if (priority === 5) return "🔴";
-    if (priority === 3) return "🟡";
-    if (priority === 1) return "🔵";
+    if (priority === 5) return "🚩高";
+    if (priority === 3) return "🚩中";
+    if (priority === 1) return "🚩低";
     return "";
 }
 

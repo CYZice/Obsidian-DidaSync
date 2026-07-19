@@ -4756,6 +4756,35 @@ label+.dida-project-select {
 }
 
 /* 任务操作菜单样式 */
+.dida-native-task-action-widget {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    margin-inline-start: 4px;
+    padding: 0;
+    color: var(--text-muted);
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    vertical-align: middle;
+    opacity: 0.72;
+    cursor: pointer;
+}
+
+.dida-native-task-action-widget:hover,
+.dida-native-task-action-widget:focus-visible {
+    color: var(--interactive-accent);
+    background: var(--background-modifier-hover);
+    opacity: 1;
+}
+
+.dida-native-task-action-widget svg {
+    width: 15px;
+    height: 15px;
+}
+
 .task-action-menu {
     min-width: 200px;
     max-width: 300px;

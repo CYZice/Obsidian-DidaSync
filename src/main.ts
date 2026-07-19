@@ -1,6 +1,7 @@
-import { Editor, EditorPosition, getIconIds, Menu, Modal, Notice, Platform, Plugin, setIcon, TFile, normalizePath } from 'obsidian';
+import { Editor, EditorPosition, getIconIds, MarkdownView, Menu, Modal, Notice, Platform, Plugin, setIcon, TFile, normalizePath } from 'obsidian';
 import { DidaApiClient } from './api/DidaApiClient';
 import { RRuleParser } from './core/RRuleParser';
+import { createNativeTaskActionExtension } from './editor/NativeTaskActionExtension';
 import { TaskNoteSyncManager } from './managers/TaskNoteSyncManager';
 import { NativeTaskSyncManager } from './managers/NativeTaskSyncManager';
 import { NoteSyncManager } from './managers/NoteSyncManager';
@@ -89,9 +90,7 @@ export default class DidaSyncPlugin extends Plugin {
     _taskStatusChangeTimeout: number | null = null;
     _lastErrorTime: number | null = null;
     _projectCreationPromises: Map<string, Promise<any>> | null = null;
-    taskActionMenuDebounceTimer: number | null = null;
     dateChangeDebounceTimer: number | null = null;
-    lastTaskMenuTriggerTime: number = 0;
     isReverseUpdating: boolean = false;
 
     async onload() {
@@ -108,6 +107,15 @@ export default class DidaSyncPlugin extends Plugin {
         this.noteSyncManager = new NoteSyncManager(this.app, this);
         this.repeatTaskManager = new RepeatTaskManager(this);
         this.taskNoteSyncManager = new TaskNoteSyncManager(this.app, this);
+        this.registerEditorExtension(createNativeTaskActionExtension(lineNumber => {
+            const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+            const editor = view?.editor;
+            if (!editor) return;
+            const line = editor.getLine(lineNumber);
+            const cursor = { line: lineNumber, ch: line.length };
+            editor.setCursor(cursor);
+            this.showTaskActionMenu(editor, cursor);
+        }, () => this.settings.enableNativeTaskSync));
 
         this.addSettingTab(new DidaSyncSettingTab(this.app, this));
 
@@ -2536,24 +2544,6 @@ export default class DidaSyncPlugin extends Plugin {
                             }
                         }
                     }
-                    if (this.taskActionMenuDebounceTimer) {
-                        clearTimeout(this.taskActionMenuDebounceTimer);
-                        this.taskActionMenuDebounceTimer = null;
-                    }
-                    const parsedTaskActionPrefix = parseTaskLine(prefix);
-                    if (parsedTaskActionPrefix && parsedTaskActionPrefix.checkbox === " ") {
-                        if (this.isTaskActionInProgress) return;
-                        if (this.currentTaskActionMenu && this.currentTaskActionMenu.isOpen && this.currentTaskActionMenu.isSamePosition(editor, cursor)) return;
-                        if (Date.now() - this.lastTaskMenuTriggerTime < 300) return;
-                        this.taskActionMenuDebounceTimer = window.setTimeout(() => {
-                            this.lastTaskMenuTriggerTime = Date.now();
-                            this.showTaskActionMenu(editor, cursor);
-                            this.taskActionMenuDebounceTimer = null;
-                        }, 150);
-                    } else if (this.currentTaskActionMenu && this.currentTaskActionMenu.isOpen) {
-                        this.currentTaskActionMenu.close();
-                        this.currentTaskActionMenu = null;
-                    }
                 }
                 if (this.dateChangeDebounceTimer) {
                     clearTimeout(this.dateChangeDebounceTimer);
@@ -2562,7 +2552,7 @@ export default class DidaSyncPlugin extends Plugin {
                 const dateRegex = /^(\s*)-\s\[\s\]\s*(.+)📅\s*(\d{4}-\d{2}-\d{2})(.*)$/;
                 const match = line.match(dateRegex);
                 if (match) {
-                    const title = match[2].trim();
+                    const title = parseTaskLine(line)?.title || match[2].trim();
                     const dateStr = match[3];
                     const linkMatch = line.match(/\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=([a-f0-9]+)\)/);
                     if (linkMatch) {
@@ -2750,12 +2740,24 @@ export default class DidaSyncPlugin extends Plugin {
                         new Notice("任务已同步，无需再次同步", 3000);
                         return;
                     }
+                    let project = parsedLine.projectName
+                        ? this.findProjectByName(parsedLine.projectName) || this.findProjectById(parsedLine.projectName)
+                        : null;
+                    if (parsedLine.projectName && !project) {
+                        new Notice(`未找到清单：${parsedLine.projectName}`);
+                        return;
+                    }
+                    if (project?.isLocalOnly || (project && !project.id)) {
+                        const remote = await this.ensureRemoteProjectExists(project);
+                        project = { ...project, id: remote.id, name: remote.name || project.name, isLocalOnly: false };
+                    }
                     const created = await this.createTaskDirectly(parsedLine.title, {
                         startDate: parsedLine.startDate as any,
                         dueDate: parsedLine.dueDate as any,
                         isAllDay: parsedLine.isAllDay,
                         priority: parsedLine.priority,
-                        repeatFlag: parsedLine.repeatFlag as any
+                        repeatFlag: parsedLine.repeatFlag as any,
+                        projectId: project?.id || undefined
                     });
                     if (created && created.id) {
                         editor.setLine(cursor.line, formatTaskLine(line, { didaId: created.id, disconnected: false }));
@@ -2766,8 +2768,8 @@ export default class DidaSyncPlugin extends Plugin {
                             completed: false,
                             status: 0,
                             didaId: created.id,
-                            projectId: created.projectId || "inbox",
-                            projectName: "收集箱",
+                            projectId: created.projectId || project?.id || "inbox",
+                            projectName: project?.name || "收集箱",
                             createdAt: new Date().toISOString(),
                             updatedAt: new Date().toISOString(),
                             items: [],
@@ -2884,6 +2886,7 @@ export default class DidaSyncPlugin extends Plugin {
         if (metadata.isAllDay !== undefined) data.isAllDay = metadata.isAllDay;
         if (metadata.priority !== undefined) data.priority = metadata.priority;
         if (typeof metadata.repeatFlag === "string") data.repeatFlag = metadata.repeatFlag;
+        if (metadata.projectId && metadata.projectId !== "inbox") data.projectId = metadata.projectId;
         try {
             const res = await this.apiClient.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task", {
                 method: "POST",
@@ -3046,8 +3049,9 @@ export default class DidaSyncPlugin extends Plugin {
                     // 去除 📅 日期后缀（防万一）
                     cleanTitle = cleanTitle.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, "").trim();
                     cleanTitle = cleanTitle.replace(/\s*\[[0-9]{1,2}:[0-9]{2}\s*-\s*[0-9]{1,2}:[0-9]{2}\]\s*/g, "").trim();
-                    cleanTitle = cleanTitle.replace(/\s*🔁\s*every[^📅🔴🟡🔵⚪]*/g, "").trim();
-                    cleanTitle = cleanTitle.replace(/[🔴🟡🔵⚪]/g, "").replace(/\s+/g, " ").trim();
+                    cleanTitle = cleanTitle.replace(/\s*🔁\s*every.*?(?=\s+(?:📅|🔴|🟡|🔵|⚪|🚩|\^)|$)/g, "").trim();
+                    cleanTitle = cleanTitle.replace(/🔴|🟡|🔵|⚪|🚩\s*(?:高|中|低)(?:优先级)?/g, "").trim();
+                    cleanTitle = cleanTitle.replace(/\s+\^(?:\[[^\]]+\]|[^\s]+)/g, "").replace(/\s+/g, " ").trim();
                     task.title = cleanTitle;
                 }
                 task.updatedAt = new Date().toISOString();

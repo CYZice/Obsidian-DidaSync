@@ -59,6 +59,7 @@ const didaId = "6a24462bc500bf31a90ce7dd";
     assert.ok(line.startsWith("> - [ ] 完整任务 "));
     assert.ok(line.includes(`didaId=${didaId}`));
     assert.ok(line.includes("2026-06-09"));
+    assert.ok(line.includes("🚩中"));
     assert.ok(line.includes("every week"));
 }
 
@@ -107,6 +108,15 @@ const didaId = "6a24462bc500bf31a90ce7dd";
     assert.ok(updated.includes("[09:30 - 11:15]"));
     assert.ok(updated.includes("📅 2026-06-10"));
     assert.ok(updated.includes("every day"));
+}
+
+{
+    const parsed = parseTaskLine("- [ ] 项目任务 ^[Project Alpha] 🚩高");
+    assert.equal(parsed?.title, "项目任务");
+    assert.equal(parsed?.projectName, "Project Alpha");
+    assert.equal(parsed?.priority, 5);
+    const formatted = formatTaskLine("- [ ] 项目任务 ^PROJECT 🔴", {});
+    assert.equal(formatted, "- [ ] 项目任务 🚩高 ^PROJECT");
 }
 
 {

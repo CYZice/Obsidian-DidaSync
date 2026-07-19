@@ -110,6 +110,16 @@ async function run() {
     assert.ok(plugin.getNoteSyncProjectConfigs().find((entry: any) => entry.id === "note-remote"));
     assert.ok(plugin.settings.projectCatalog.find((entry: any) => entry.name === "本地")?.isLocalOnly);
 
+    let createdTaskPayload: any = null;
+    plugin.apiClient = {
+        async makeAuthenticatedRequest(_url: string, options: any) {
+            createdTaskPayload = JSON.parse(options.body);
+            return { ok: true, async json() { return { id: "remote-task", projectId: "p2" }; } };
+        }
+    };
+    await plugin.createTaskDirectly("项目任务", { projectId: "p2" });
+    assert.equal(createdTaskPayload.projectId, "p2");
+
     await plugin.applyLocalProjectRename({ id: "p1", name: "项目甲", isArchived: false, isLocalOnly: false }, "项目甲改名");
     assert.equal(plugin.settings.tasks[1].projectName, "项目甲改名");
     assert.equal(plugin.settings.projectCollapsedStates["项目甲改名"], true);
