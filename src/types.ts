@@ -49,6 +49,7 @@ export interface DidaTask {
     // Native Sync fields
     hasLink?: boolean; // If linked to a markdown file
     linkPath?: string;
+    remoteDeleted?: boolean;
 
     // Placement sync UI state
     syncPlacementPending?: boolean;

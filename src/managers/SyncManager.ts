@@ -1,5 +1,6 @@
 import { Notice } from "obsidian";
 import DidaSyncPlugin from "../main";
+import { formatTaskLine } from "../taskLineFormat";
 import { DidaTask, PendingPlacementOperationPayload, PendingSyncOperation, PendingSyncOperationType, SyncResult } from "../types";
 import { ensureTaskCompletedTime, normalizeRemoteCompletedTime } from "../utils";
 import { TASK_VIEW_TYPE, TaskView } from "../views/TaskView";
@@ -917,9 +918,12 @@ export class SyncManager {
                 if (!await this._decideReverseCompletion(task, { verifyBudget, decisionCache })) continue;
                 const idx = this.plugin.settings.tasks.findIndex(t => t.didaId === task.didaId);
                 if (idx !== -1) {
-                    this.plugin.settings.tasks[idx].status = 2;
-                    ensureTaskCompletedTime(this.plugin.settings.tasks[idx]);
-                    this.plugin.settings.tasks[idx].updatedAt = new Date().toISOString();
+                    const local = this.plugin.settings.tasks[idx];
+                    if (!local.remoteDeleted) {
+                        local.status = 2;
+                        ensureTaskCompletedTime(local);
+                    }
+                    local.updatedAt = new Date().toISOString();
                     count++;
                 }
             } catch (e) { }
@@ -929,7 +933,7 @@ export class SyncManager {
     }
 
     async markCompletedNativeTasksWithLinks(tasks: any[]) {
-        if (!Array.isArray(tasks) || tasks.length === 0) return 0;
+        if (!Array.isArray(tasks)) return 0;
         const remoteIds = new Set(tasks.map(t => t.id));
         const noteSyncDidaIds = new Set(
             this.plugin.settings.tasks
@@ -942,21 +946,26 @@ export class SyncManager {
             for (const file of this.plugin.app.vault.getMarkdownFiles()) {
                 try {
                     const content = await this.plugin.app.vault.read(file);
-                    const nativeTasks = this.plugin.nativeTaskSyncManager.detectNativeTasks(content, file.path).filter(t => t.hasLink && t.didaId && !t.isCompleted && !remoteIds.has(t.didaId) && !noteSyncDidaIds.has(t.didaId));
+                    const nativeTasks = this.plugin.nativeTaskSyncManager.detectNativeTasks(content, file.path).filter(t => t.hasLink && t.didaId && !remoteIds.has(t.didaId) && !noteSyncDidaIds.has(t.didaId));
                     if (nativeTasks.length > 0) {
                         const lines = content.split("\n");
+                        let fileChanged = false;
                         for (const nativeTask of nativeTasks) {
                             const lineNumber = nativeTask.lineNumber;
                             if (lineNumber < lines.length) {
                                 const line = lines[lineNumber];
-                                const replaced = line.replace(/^(\s*-\s*)\[\s*\](\s*.*)$/, "$1[x]$2");
+                                const local = this.plugin.settings.tasks.find(task => task.didaId === nativeTask.didaId);
+                                const replaced = local?.remoteDeleted
+                                    ? formatTaskLine(line, { didaId: null, disconnected: true })
+                                    : formatTaskLine(line, { checkbox: "x" });
                                 if (replaced !== line) {
                                     lines[lineNumber] = replaced;
                                     count++;
+                                    fileChanged = true;
                                 }
                             }
                         }
-                        if (count > 0) {
+                        if (fileChanged) {
                             const newContent = lines.join("\n");
                             await this.plugin.app.vault.modify(file, newContent);
                         }
@@ -964,6 +973,15 @@ export class SyncManager {
                 } catch (e) { }
             }
         } catch (e) { }
+        const deletedIds = new Set(this.plugin.settings.tasks.filter(task => task.remoteDeleted && task.didaId).map(task => task.didaId as string));
+        if (deletedIds.size > 0) {
+            this.plugin.settings.tasks = this.plugin.settings.tasks.filter(task => !task.didaId || !deletedIds.has(task.didaId));
+            for (const id of deletedIds) {
+                delete this.plugin.settings.reverseCompletionMeta?.[id];
+                delete this.plugin.settings.syncConsistencyMeta?.[id];
+            }
+            await this.plugin.saveSettings();
+        }
         return count;
     }
 
@@ -1413,9 +1431,13 @@ export class SyncManager {
         const result = await this._verifySingleDidaTaskStatus(task.projectId, task.didaId);
         switch (result.kind) {
             case "completed":
+                task.remoteDeleted = false;
+                return updateMeta(true);
             case "not_found":
+                task.remoteDeleted = true;
                 return updateMeta(true);
             case "still_active":
+                task.remoteDeleted = false;
                 meta.missingStreak = 0;
                 return updateMeta(false);
             default:
@@ -1468,7 +1490,17 @@ export class SyncManager {
                         meta.lastSeenAt = new Date().toISOString();
                         break;
                     case "completed":
+                        localTask.remoteDeleted = false;
+                        meta.missingStreak = (meta.missingStreak || 0) + 1;
+                        meta.lastMissingAt = new Date().toISOString();
+                        if (meta.missingStreak >= REVERSE_COMPLETION_MISSING_THRESHOLD) {
+                            toConfirm.push(task);
+                        } else {
+                            toRetry.push(task);
+                        }
+                        break;
                     case "not_found":
+                        localTask.remoteDeleted = true;
                         meta.missingStreak = (meta.missingStreak || 0) + 1;
                         meta.lastMissingAt = new Date().toISOString();
                         if (meta.missingStreak >= REVERSE_COMPLETION_MISSING_THRESHOLD) {
@@ -1492,8 +1524,10 @@ export class SyncManager {
         for (const task of tasks) {
             const localTask = this.plugin.settings.tasks.find((t: any) => t && t.didaId === task.didaId);
             if (localTask && localTask.status !== 2) {
-                localTask.status = 2;
-                ensureTaskCompletedTime(localTask);
+                if (!localTask.remoteDeleted) {
+                    localTask.status = 2;
+                    ensureTaskCompletedTime(localTask);
+                }
                 localTask.updatedAt = new Date().toISOString();
                 await this.plugin.saveSettings();
             }

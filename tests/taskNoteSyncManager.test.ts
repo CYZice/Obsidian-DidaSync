@@ -122,6 +122,19 @@ async function run() {
     assert.match(syncedBlock, /<!-- didasync:start -->/);
     assert.match(syncedBlock, /Beta/);
 
+    let remoteFilters: any = null;
+    plugin.settings.accessToken = "token";
+    plugin.settings.taskNoteSyncUseRemoteQuery = true;
+    plugin.apiClient.filterTasks = async (filters: any) => {
+        remoteFilters = filters;
+        return [{ id: "r-completed", title: "Remote completed", status: 2, projectId: "p1", projectName: "项目甲", dueDate: "2026-06-25T10:00:00+0800" }];
+    };
+    const remoteSelected = await manager.getTasksForRange(
+        { type: "day", startDate: "2026-06-25", endDate: "2026-06-25" }
+    );
+    assert.deepEqual(remoteFilters.status, [0, 2]);
+    assert.deepEqual(remoteSelected.map((task: any) => task.title), ["Beta", "Remote completed"]);
+
     console.log("TaskNoteSyncManager tests passed");
 }
 

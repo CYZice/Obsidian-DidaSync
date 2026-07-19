@@ -11,6 +11,7 @@ export interface ParsedTaskLine {
     isAllDay: boolean;
     priority: number;
     repeatFlag: string | null;
+    disconnected: boolean;
 }
 
 export interface TaskLineMetadata {
@@ -22,6 +23,7 @@ export interface TaskLineMetadata {
     isAllDay?: boolean;
     priority?: number;
     repeatFlag?: string | null;
+    disconnected?: boolean;
 }
 
 const DIDA_LINK_RE = /\[[^\]]*Dida[^\]]*\]\(obsidian:\/\/dida-task\?didaId=([a-zA-Z0-9]+)\)/;
@@ -29,7 +31,8 @@ const ANY_DIDA_LINK_RE = /\s*\[[^\]]*Dida[^\]]*\]\(obsidian:\/\/dida-task\?didaI
 const TIME_RANGE_RE = /\[(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\]/;
 const DUE_DATE_RE = /📅\s*(\d{4}-\d{2}-\d{2})/;
 const REPEAT_RE = /🔁\s*(every\s+[^📅🔴🟡🔵⚪]+)/i;
-const PRIORITY_RE = /[🔴🟡🔵⚪]/g;
+const PRIORITY_RE = /🔴|🟡|🔵|⚪/g;
+const DISCONNECTED_RE = /(?:^|\s)🗑️(?=\s|$)/;
 
 export function parseTaskLine(line: string): ParsedTaskLine | null {
     const match = line.match(/^((?:\s*>\s*)*)(\s*)-\s*\[([ xX])\]\s*(.*)$/);
@@ -49,6 +52,7 @@ export function parseTaskLine(line: string): ParsedTaskLine | null {
 
     const priority = parsePriority(body);
     const repeatFlag = repeatMatch ? tasksRepeatToRRule(repeatMatch[1].trim()) : null;
+    const disconnected = DISCONNECTED_RE.test(body);
 
     let startDate: string | null = null;
     let dueDate: string | null = null;
@@ -80,11 +84,12 @@ export function parseTaskLine(line: string): ParsedTaskLine | null {
         .replace(DUE_DATE_RE, " ")
         .replace(REPEAT_RE, " ")
         .replace(PRIORITY_RE, " ")
+        .replace(DISCONNECTED_RE, " ")
         .replace(/\s+\d{4}-\d{2}-\d{2}\s*/g, " ")
         .replace(/\s+/g, " ")
         .trim();
 
-    return { quotePrefix, indent, checkbox, title, didaId, startDate, dueDate, isAllDay, priority, repeatFlag };
+    return { quotePrefix, indent, checkbox, title, didaId, startDate, dueDate, isAllDay, priority, repeatFlag, disconnected };
 }
 
 export function formatTaskLine(line: string, metadata: TaskLineMetadata): string {
@@ -100,7 +105,8 @@ export function formatTaskLine(line: string, metadata: TaskLineMetadata): string
         dueDate: metadata.dueDate !== undefined ? metadata.dueDate : parsed.dueDate,
         isAllDay: metadata.isAllDay !== undefined ? metadata.isAllDay : parsed.isAllDay,
         priority: metadata.priority !== undefined ? metadata.priority : parsed.priority,
-        repeatFlag: metadata.repeatFlag !== undefined ? metadata.repeatFlag : parsed.repeatFlag
+        repeatFlag: metadata.repeatFlag !== undefined ? metadata.repeatFlag : parsed.repeatFlag,
+        disconnected: metadata.disconnected !== undefined ? metadata.disconnected : parsed.disconnected
     });
 }
 
@@ -115,7 +121,8 @@ export function formatTaskLineFromTask(task: DidaTask, indent: string = "", quot
         dueDate: task.dueDate || null,
         isAllDay: task.isAllDay === true,
         priority: task.priority || 0,
-        repeatFlag: task.repeatFlag || null
+        repeatFlag: task.repeatFlag || null,
+        disconnected: false
     });
 }
 
@@ -145,8 +152,9 @@ function buildTaskLine(parts: ParsedTaskLine): string {
     const checkbox = parts.checkbox.toLowerCase() === "x" ? "x" : " ";
     const title = (parts.title || "").trim() || "无标题任务";
     const link = parts.didaId ? ` [🔗Dida](obsidian://dida-task?didaId=${parts.didaId})` : "";
+    const disconnected = parts.disconnected && !parts.didaId ? " 🗑️" : "";
     const metadata = formatMetadata(parts);
-    return `${parts.quotePrefix || ""}${parts.indent}- [${checkbox}] ${title}${link}${metadata}`.trimEnd();
+    return `${parts.quotePrefix || ""}${parts.indent}- [${checkbox}] ${title}${link}${metadata}${disconnected}`.trimEnd();
 }
 
 function formatMetadata(parts: ParsedTaskLine): string {

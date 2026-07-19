@@ -251,12 +251,16 @@ export class TaskNoteSyncManager {
                 const remoteTasks = await this.plugin.apiClient.filterTasks({
                     projectIds,
                     startDate: this.plugin.formatDidaDateTime(start),
-                    endDate: this.plugin.formatDidaDateTime(end)
+                    endDate: this.plugin.formatDidaDateTime(end),
+                    status: [0, 2]
                 });
                 const normalized = Array.isArray(remoteTasks)
                     ? remoteTasks.map((task) => this.plugin.normalizeRemoteTask(task))
                     : [];
-                return this.selectTasksForRange(normalized, range, normalizedProjectKeys, shouldFilterProjects);
+                const remoteIds = new Set(normalized.flatMap((task) => [task.id, task.didaId].filter(Boolean)));
+                const localPending = (this.plugin.settings.tasks || [])
+                    .filter((task) => task.status !== 2 && !remoteIds.has(task.id) && !remoteIds.has(task.didaId));
+                return this.selectTasksForRange([...normalized, ...localPending], range, normalizedProjectKeys, shouldFilterProjects);
             } catch (e) {
                 console.error(e);
                 new Notice("主动查询任务失败，已改用本地缓存任务");

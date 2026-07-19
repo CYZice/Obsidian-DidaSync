@@ -27,11 +27,12 @@ async function run() {
         "- [ ] ignored in code",
         "```",
         "- [ ] `ignored inline`",
-        "> - [ ] Quote task [Dida](obsidian://dida-task?didaId=def456) 2026-06-26"
+        "> - [ ] Quote task [Dida](obsidian://dida-task?didaId=def456) 2026-06-26",
+        "- [ ] Disconnected task 🗑️"
     ].join("\n");
 
     const tasks = manager.detectNativeTasks(content, "Daily.md");
-    assert.equal(tasks.length, 3);
+    assert.equal(tasks.length, 4);
     assert.equal(tasks[0].title, "Plain task");
     assert.equal(tasks[0].priority, 5);
     assert.equal(tasks[0].taskDate, "2026-06-24");
@@ -43,6 +44,8 @@ async function run() {
     assert.match(tasks[1].dueDate || "", /T10:30:00/);
     assert.equal(tasks[1].repeatFlag, "RRULE:FREQ=WEEKLY;INTERVAL=1");
     assert.equal(tasks[2].didaId, "def456");
+    assert.equal(tasks[3].title, "Disconnected task");
+    assert.equal(tasks[3].hasLink, false);
     assert.equal(manager.generateTaskId("A B.md", 2, "hello!"), "A_B_md_2_hello_");
 
     (globalThis as any).window.offline();

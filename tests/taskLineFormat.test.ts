@@ -119,6 +119,18 @@ const didaId = "6a24462bc500bf31a90ce7dd";
 }
 
 {
+    const disconnected = formatTaskLine(`- [ ] 已删除任务 [Dida](obsidian://dida-task?didaId=${didaId})`, {
+        didaId: null,
+        disconnected: true
+    });
+    assert.equal(disconnected, "- [ ] 已删除任务 🗑️");
+    const parsed = parseTaskLine(disconnected);
+    assert.equal(parsed?.title, "已删除任务");
+    assert.equal(parsed?.didaId, null);
+    assert.equal(parsed?.disconnected, true);
+}
+
+{
     const line = `> - [ ] 清除日期 [Dida](obsidian://dida-task?didaId=${didaId}) [09:30 - 11:15] 📅 2026-06-10 🔁 every day`;
     const updated = formatTaskLine(line, {
         startDate: null,

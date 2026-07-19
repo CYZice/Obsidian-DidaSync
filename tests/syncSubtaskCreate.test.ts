@@ -277,6 +277,32 @@ async function run() {
     assert.equal(reverseCompletedSubtask.status, 2);
     assert.equal(typeof reverseCompletedSubtask.completedTime, "string");
 
+    let deletedMarkdown = "> - [ ] 云端已删除 [Dida](obsidian://dida-task?didaId=deletedremote)";
+    const deletedPlugin: any = {
+        settings: {
+            tasks: [{ id: "deleted-local", didaId: "deletedremote", title: "云端已删除", status: 0, projectId: "p1", remoteDeleted: true }],
+            reverseCompletionMeta: { deletedremote: { missingStreak: 3 } },
+            syncConsistencyMeta: {}
+        },
+        isNoteSyncTaskLike() { return false; },
+        nativeTaskSyncManager: {
+            detectNativeTasks() {
+                return [{ hasLink: true, didaId: "deletedremote", isCompleted: false, lineNumber: 0 }];
+            }
+        },
+        app: {
+            vault: {
+                getMarkdownFiles() { return [{ path: "Daily.md" }]; },
+                async read() { return deletedMarkdown; },
+                async modify(_file: any, content: string) { deletedMarkdown = content; }
+            }
+        },
+        async saveSettings() { }
+    };
+    await new SyncManager(deletedPlugin).markCompletedNativeTasksWithLinks([]);
+    assert.equal(deletedMarkdown, "> - [ ] 云端已删除 🗑️");
+    assert.equal(deletedPlugin.settings.tasks.length, 0);
+
     const convertedNotePlugin: any = {
         settings: {
             accessToken: "token",

@@ -2758,7 +2758,7 @@ export default class DidaSyncPlugin extends Plugin {
                         repeatFlag: parsedLine.repeatFlag as any
                     });
                     if (created && created.id) {
-                        editor.setLine(cursor.line, formatTaskLine(line, { didaId: created.id }));
+                        editor.setLine(cursor.line, formatTaskLine(line, { didaId: created.id, disconnected: false }));
                         const task: DidaTask = {
                             id: Date.now().toString(),
                             title: parsedLine.title,
