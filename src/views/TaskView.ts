@@ -1371,7 +1371,7 @@ export class TaskView extends ItemView {
             if (!this.isTaskComposerOpen || !scope.isConnected) return;
             const handler = (event: PointerEvent) => {
                 const target = event.target as HTMLElement | null;
-                if (!target || scope.contains(target) || target.closest(".dida-schedule-popup-layer, .dida-compact-repeat-overlay")) return;
+                if (!target || scope.contains(target) || target.closest(".dida-schedule-popup-layer, .dida-compact-repeat-overlay, .menu")) return;
                 this.closeTaskComposer(true);
             };
             this.taskComposerOutsidePointerHandler = handler;
