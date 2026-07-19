@@ -1,4 +1,4 @@
-import { buildCalendarMonthGrid, dedupeCalendarTasks, getCalendarDateKey, getCalendarMonthRange, getCalendarYearRange, groupTasksByCalendarDate } from "../src/calendarMonth";
+import { buildCalendarMonthGrid, dedupeCalendarTasks, getCalendarDateKey, getCalendarMonthRange, getCalendarWeekRange, getCalendarYearRange, groupTasksByCalendarDate } from "../src/calendarMonth";
 import { DidaTask } from "../src/types";
 
 function assertEqual(actual: unknown, expected: unknown, message: string) {
@@ -37,6 +37,10 @@ assertEqual(getCalendarDateKey(sundayGrid[4].date), "2026-06-04", "Sunday-start 
 const range = getCalendarMonthRange(june2026);
 assertEqual(range.startDate.toISOString(), new Date(2026, 5, 1, 0, 0, 0, 0).toISOString(), "month range start");
 assertEqual(range.endDate.toISOString(), new Date(2026, 5, 30, 23, 59, 59, 999).toISOString(), "month range end");
+
+const weekRange = getCalendarWeekRange(new Date(2026, 6, 22, 14, 30));
+assertEqual(weekRange.startDate.toISOString(), new Date(2026, 6, 20, 0, 0, 0, 0).toISOString(), "week range starts on Monday");
+assertEqual(weekRange.endDate.toISOString(), new Date(2026, 6, 26, 23, 59, 59, 999).toISOString(), "week range ends on Sunday");
 
 const yearRange = getCalendarYearRange(june2026);
 assertEqual(yearRange.startDate.toISOString(), new Date(2026, 0, 1, 0, 0, 0, 0).toISOString(), "year range start");

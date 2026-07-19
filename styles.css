@@ -154,7 +154,19 @@
 .dida-task-view {
     padding: 16px;
     height: 100%;
+    box-sizing: border-box;
     overflow-y: auto;
+}
+
+.dida-task-view.dida-calendar-grid-layout {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.dida-task-view.dida-calendar-grid-layout > .dida-task-list {
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .dida-task-header {
@@ -3711,7 +3723,12 @@ label+.dida-project-select {
     white-space: nowrap;
 }
 
+.dida-calendar-week-view,
 .dida-calendar-month-view {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
@@ -3751,6 +3768,7 @@ label+.dida-project-select {
 }
 
 .dida-calendar-weekday-row,
+.dida-calendar-week-grid,
 .dida-calendar-month-grid {
     display: grid;
     grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -3765,19 +3783,35 @@ label+.dida-project-select {
 }
 
 .dida-calendar-month-grid {
+    flex: 1 1 auto;
+    min-height: 0;
+    grid-template-rows: repeat(var(--dida-calendar-row-count, 6), minmax(96px, 1fr));
+    border-top: 1px solid var(--background-modifier-border);
+    border-left: 1px solid var(--background-modifier-border);
+}
+
+.dida-calendar-week-grid {
+    flex: 1 1 auto;
+    min-height: 240px;
     border-top: 1px solid var(--background-modifier-border);
     border-left: 1px solid var(--background-modifier-border);
 }
 
 .dida-calendar-month-cell {
+    display: flex;
+    flex-direction: column;
     min-width: 0;
-    min-height: 96px;
+    min-height: 0;
     padding: 4px;
     border-right: 1px solid var(--background-modifier-border);
     border-bottom: 1px solid var(--background-modifier-border);
     background: var(--background-primary);
     box-sizing: border-box;
     overflow: hidden;
+}
+
+.dida-calendar-week-cell {
+    min-height: 240px;
 }
 
 .dida-calendar-month-cell.is-outside-month {
@@ -3789,6 +3823,14 @@ label+.dida-project-select {
     box-shadow: inset 0 0 0 1px var(--interactive-accent);
 }
 
+.dida-calendar-cell-header {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    min-width: 0;
+}
+
 .dida-calendar-cell-date {
     width: fit-content;
     min-width: 22px;
@@ -3798,20 +3840,62 @@ label+.dida-project-select {
     font-size: 12px;
     font-weight: 700;
     line-height: 22px;
+    border: 0;
+    box-shadow: none !important;
+    background: transparent !important;
+    color: inherit;
     cursor: pointer;
 }
 
+.dida-calendar-cell-add {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border-radius: 50%;
+    box-shadow: none !important;
+    background: transparent !important;
+    color: var(--text-muted);
+    opacity: 0;
+    transition: opacity 120ms ease, background-color 120ms ease;
+}
+
+.dida-calendar-cell-add svg {
+    width: 14px;
+    height: 14px;
+}
+
+.dida-calendar-month-cell:hover .dida-calendar-cell-add,
+.dida-calendar-cell-add:focus-visible {
+    opacity: 1;
+}
+
+.dida-calendar-cell-add:hover {
+    background: var(--background-modifier-hover) !important;
+    color: var(--text-normal);
+}
+
 .dida-calendar-month-cell.is-today .dida-calendar-cell-date {
-    background: var(--interactive-accent);
+    background: var(--interactive-accent) !important;
     color: var(--text-on-accent);
 }
 
 .dida-calendar-cell-tasks {
     display: flex;
+    flex: 1 1 auto;
     flex-direction: column;
     gap: 3px;
     margin-top: 4px;
     min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: none;
+}
+
+.dida-calendar-cell-tasks::-webkit-scrollbar {
+    display: none;
 }
 
 .dida-calendar-task-chip {
@@ -4002,8 +4086,8 @@ label+.dida-project-select {
         padding: 3px;
     }
 
-    .dida-calendar-task-chip:nth-child(n + 3) {
-        display: none;
+    .dida-calendar-month-grid {
+        grid-template-rows: repeat(var(--dida-calendar-row-count, 6), minmax(72px, 1fr));
     }
 
     .dida-calendar-task-chip {
@@ -5254,6 +5338,12 @@ label+.dida-project-select {
     overflow: visible;
 }
 
+.dida-time-block-view.is-calendar-grid {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+}
+
 .dida-time-block-date-selector {
     padding: 5px 0;
     margin-bottom: 5px;
@@ -5739,6 +5829,12 @@ label+.dida-project-select {
 }
 .dida-note-sync-record {
     cursor: pointer;
+}
+
+@media (hover: none) {
+    .dida-calendar-cell-add {
+        opacity: 1;
+    }
 }
 
 .dida-note-list-view .dida-project-header {

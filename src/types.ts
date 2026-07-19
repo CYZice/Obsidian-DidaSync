@@ -242,7 +242,7 @@ export interface DidaSyncSettings {
     childTaskCollapsedStates: { [key: string]: boolean };
     projectOrder: string[]; // Array of project names/ids to store order
     defaultViewMode: "task" | "timeblock";
-    defaultCalendarMode?: "day" | "month" | "year";
+    defaultCalendarMode?: "day" | "week" | "month" | "year";
     defaultShowCompletedInCalendar?: boolean;
     showTimelineEntry?: boolean;
     showPomodoroEntry?: boolean;

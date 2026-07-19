@@ -1,6 +1,6 @@
 import { DidaTask } from "./types";
 
-export type CalendarMode = "day" | "month" | "year";
+export type CalendarMode = "day" | "week" | "month" | "year";
 
 export interface CalendarDayCell {
     date: Date;
@@ -16,6 +16,17 @@ export function getCalendarMonthRange(displayDate: Date) {
     const startDate = new Date(displayDate.getFullYear(), displayDate.getMonth(), 1);
     startDate.setHours(0, 0, 0, 0);
     const endDate = new Date(displayDate.getFullYear(), displayDate.getMonth() + 1, 0);
+    endDate.setHours(23, 59, 59, 999);
+    return { startDate, endDate };
+}
+
+export function getCalendarWeekRange(displayDate: Date) {
+    const startDate = new Date(displayDate);
+    startDate.setHours(0, 0, 0, 0);
+    const day = startDate.getDay();
+    startDate.setDate(startDate.getDate() - (day === 0 ? 6 : day - 1));
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + 6);
     endDate.setHours(23, 59, 59, 999);
     return { startDate, endDate };
 }
