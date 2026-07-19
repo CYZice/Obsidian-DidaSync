@@ -110,6 +110,15 @@ const didaId = "6a24462bc500bf31a90ce7dd";
 }
 
 {
+    const updated = formatTaskLine("- [ ] 只设置日期", {
+        startDate: "2026-06-10T00:00:00+0800",
+        dueDate: "2026-06-10T00:00:00+0800",
+        isAllDay: true
+    });
+    assert.equal(updated, "- [ ] 只设置日期 📅 2026-06-10");
+}
+
+{
     const line = `> - [ ] 清除日期 [Dida](obsidian://dida-task?didaId=${didaId}) [09:30 - 11:15] 📅 2026-06-10 🔁 every day`;
     const updated = formatTaskLine(line, {
         startDate: null,

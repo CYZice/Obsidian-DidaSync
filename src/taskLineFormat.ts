@@ -199,7 +199,6 @@ function formatPriority(priority?: number): string {
     if (priority === 5) return "🔴";
     if (priority === 3) return "🟡";
     if (priority === 1) return "🔵";
-    if (priority === 0) return "⚪";
     return "";
 }
 

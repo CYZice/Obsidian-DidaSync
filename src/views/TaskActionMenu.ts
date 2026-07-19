@@ -299,7 +299,7 @@ export class TaskActionMenu {
         document.addEventListener("keydown", this.keyHandler, true);
 
         this.clickOutsideHandler = (e: MouseEvent) => {
-            if (this.menuElement && !this.menuElement.contains(e.target as Node)) {
+            if (this.menuElement && !e.composedPath().includes(this.menuElement)) {
                 this.close();
             }
         };

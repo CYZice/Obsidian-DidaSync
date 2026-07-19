@@ -2983,7 +2983,13 @@ export default class DidaSyncPlugin extends Plugin {
         const newLine = formatTaskLine(line, metadata);
         editor.setLine(cursor.line, newLine);
         const next = parseTaskLine(newLine);
-        if (!next || !next.didaId) return;
+        if (!next) return;
+        if (!next.didaId) {
+            if (metadata.startDate || metadata.dueDate) {
+                await this.syncTaskToDidaList(editor, cursor, newLine);
+            }
+            return;
+        }
 
         const task = this.settings.tasks.find(t => t.didaId === next.didaId);
         if (!task) return;
