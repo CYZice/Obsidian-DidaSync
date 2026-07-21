@@ -1531,18 +1531,10 @@ export class TaskView extends ItemView {
                 this.openTaskComposer(searchInput.value);
             };
 
-            const dateFilterBtn = searchInputWrap.createEl("button", {
-                cls: this.getCurrentTaskDateFilterValue() ? "dida-search-date-filter-btn is-active" : "dida-search-date-filter-btn"
-            });
-            dateFilterBtn.type = "button";
-            dateFilterBtn.title = `日期筛选：${this.getCurrentTaskDateFilterLabel()}`;
-            dateFilterBtn.setAttribute("aria-label", dateFilterBtn.title);
-            setIconElement(dateFilterBtn, "calendar-days");
-            dateFilterBtn.onclick = (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                this.openTaskDateFilterMenu(dateFilterBtn);
-            };
+        }
+
+        if (!this.isTaskComposerOpen) {
+            searchInput.addEventListener("focus", () => this.openTaskDateFilterMenu(searchInput));
         }
 
         searchInput.addEventListener("compositionstart", () => {
@@ -1592,8 +1584,7 @@ export class TaskView extends ItemView {
             projectBtn.type = "button";
             const updateProjectButton = () => {
                 const project = availableProjects.find(item => item.id === this.taskComposerProjectId) || availableProjects[0];
-                projectBtn.title = `添加至清单：${project.name}`;
-                projectBtn.setAttribute("aria-label", projectBtn.title);
+                projectBtn.setAttribute("aria-label", `添加至清单：${project.name}`);
                 setIconElement(projectBtn, "list-plus");
             };
             updateProjectButton();
@@ -1640,7 +1631,8 @@ export class TaskView extends ItemView {
                     {
                         initialSchedule: this.taskComposerSchedule,
                         scopeElement: this.containerEl,
-                        popupClass: "dida-sidebar-date-popup"
+                        popupClass: "dida-sidebar-date-popup",
+                        withOverlay: false
                     }
                 ).open();
             };

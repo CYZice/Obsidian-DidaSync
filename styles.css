@@ -240,7 +240,6 @@
 }
 
 .dida-search-clear-btn,
-.dida-search-date-filter-btn,
 .dida-search-add-btn {
     position: absolute;
     width: 20px;
@@ -255,15 +254,12 @@
 }
 
 .dida-search-clear-btn:hover,
-.dida-search-date-filter-btn:hover,
-.dida-search-date-filter-btn.is-active,
 .dida-search-add-btn:hover {
     background: var(--background-modifier-hover);
     color: var(--text-normal);
 }
 
 .dida-search-clear-btn svg,
-.dida-search-date-filter-btn svg,
 .dida-search-add-btn svg {
     width: 14px;
     height: 14px;
@@ -273,13 +269,8 @@
     right: 12px;
 }
 
-.dida-search-date-filter-btn {
-    right: 34px;
-    color: var(--text-muted);
-}
-
 .dida-search-add-btn {
-    right: 56px;
+    right: 34px;
     color: var(--text-muted);
 }
 
@@ -322,7 +313,7 @@
 .dida-task-filter-bar .dida-search-input {
     height: 28px !important;
     font-size: 12px !important;
-    padding: 0 82px 0 10px;
+    padding: 0 58px 0 10px;
     border: 1px solid var(--background-modifier-border);
     border-radius: 6px;
     background: var(--background-primary);
@@ -343,15 +334,9 @@
     transform: translateY(-50%);
 }
 
-.dida-task-filter-bar .dida-search-date-filter-btn {
-    top: 50%;
-    right: 30px;
-    transform: translateY(-50%);
-}
-
 .dida-task-filter-bar .dida-search-add-btn {
     top: 50%;
-    right: 54px;
+    right: 30px;
     transform: translateY(-50%);
 }
 
@@ -496,12 +481,8 @@
         padding-right: 78px;
     }
 
-    .dida-task-filter-bar .dida-search-date-filter-btn {
-        right: 28px;
-    }
-
     .dida-task-filter-bar .dida-search-add-btn {
-        right: 50px;
+        right: 28px;
     }
 
     .dida-task-filter-bar.is-task-composer-open .dida-search-input {
