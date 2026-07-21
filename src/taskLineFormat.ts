@@ -34,9 +34,8 @@ const TIME_RANGE_RE = /\[(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\]/;
 const DUE_DATE_RE = /📅\s*(\d{4}-\d{2}-\d{2})/;
 const REPEAT_RE = /🔁\s*(every\s+.*?)(?=\s+(?:📅|🔴|🟡|🔵|⚪|🚩|🗑️|\^)|$)/i;
 const PRIORITY_RE = /🔴|🟡|🔵|⚪/g;
-const FLAG_PRIORITY_RE = /🚩\s*(高|中|低)(?:优先级)?/g;
 const DISCONNECTED_RE = /(?:^|\s)🗑️(?=\s|$)/;
-const PROJECT_RE = /(?:^|\s)\^(?:\[([^\]]+)\]|([^\s]+))/;
+const PROJECT_RE = /(?:^|\s)\^\[([^\]]+)\]/;
 
 export function parseTaskLine(line: string): ParsedTaskLine | null {
     const match = line.match(/^((?:\s*>\s*)*)(\s*)-\s*\[([ xX])\]\s*(.*)$/);
@@ -58,7 +57,7 @@ export function parseTaskLine(line: string): ParsedTaskLine | null {
     const priority = parsePriority(body);
     const repeatFlag = repeatMatch ? tasksRepeatToRRule(repeatMatch[1].trim()) : null;
     const disconnected = DISCONNECTED_RE.test(body);
-    const projectName = projectMatch ? projectMatch[1] || projectMatch[2] : null;
+    const projectName = projectMatch ? projectMatch[1] : null;
 
     let startDate: string | null = null;
     let dueDate: string | null = null;
@@ -89,7 +88,6 @@ export function parseTaskLine(line: string): ParsedTaskLine | null {
         .replace(TIME_RANGE_RE, " ")
         .replace(DUE_DATE_RE, " ")
         .replace(REPEAT_RE, " ")
-        .replace(FLAG_PRIORITY_RE, " ")
         .replace(PRIORITY_RE, " ")
         .replace(DISCONNECTED_RE, " ")
         .replace(PROJECT_RE, " ")
@@ -163,9 +161,7 @@ function buildTaskLine(parts: ParsedTaskLine): string {
     const title = (parts.title || "").trim() || "无标题任务";
     const link = parts.didaId ? ` [🔗Dida](obsidian://dida-task?didaId=${parts.didaId})` : "";
     const disconnected = parts.disconnected && !parts.didaId ? " 🗑️" : "";
-    const project = parts.projectName
-        ? ` ^${/\s/.test(parts.projectName) ? `[${parts.projectName}]` : parts.projectName}`
-        : "";
+    const project = parts.projectName ? ` ^[${parts.projectName}]` : "";
     const metadata = formatMetadata(parts);
     return `${parts.quotePrefix || ""}${parts.indent}- [${checkbox}] ${title}${link}${metadata}${project}${disconnected}`.trimEnd();
 }
@@ -209,9 +205,6 @@ function formatTime(value: string): string {
 }
 
 function parsePriority(text: string): number {
-    if (/🚩\s*高(?:优先级)?/.test(text)) return 5;
-    if (/🚩\s*中(?:优先级)?/.test(text)) return 3;
-    if (/🚩\s*低(?:优先级)?/.test(text)) return 1;
     if (/🔴/.test(text)) return 5;
     if (/🟡/.test(text)) return 3;
     if (/🔵/.test(text)) return 1;
@@ -220,9 +213,10 @@ function parsePriority(text: string): number {
 }
 
 function formatPriority(priority?: number): string {
-    if (priority === 5) return "🚩高";
-    if (priority === 3) return "🚩中";
-    if (priority === 1) return "🚩低";
+    if (priority === 5) return "🔴";
+    if (priority === 3) return "🟡";
+    if (priority === 1) return "🔵";
+    if (priority === 0) return "⚪";
     return "";
 }
 

@@ -4542,10 +4542,10 @@ export class TaskView extends ItemView {
     }
 
     formatPriorityLabel(priority: number): string {
-        if (priority === 5) return "🚩高";
-        if (priority === 3) return "🚩中";
-        if (priority === 1) return "🚩低";
-        return "无";
+        if (priority === 5) return "🔴";
+        if (priority === 3) return "🟡";
+        if (priority === 1) return "🔵";
+        return "⚪";
     }
 
     async cycleTaskPriority(index: number) {

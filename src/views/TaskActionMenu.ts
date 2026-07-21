@@ -478,7 +478,7 @@ export class TaskActionMenu {
         });
         this.menuItems.push(dateOption);
 
-        const priorityOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: "🚩 优先级" });
+        const priorityOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: "🔴 优先级" });
         priorityOption.addEventListener("click", (e) => {
             e.preventDefault(); e.stopPropagation();
             this.renderPriorityMenu();
@@ -552,10 +552,10 @@ export class TaskActionMenu {
         this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "选择优先级";
         this.renderBackButton();
         [
-            { label: "无优先级", priority: 0 },
-            { label: "🚩 低优先级", priority: 1 },
-            { label: "🚩 中优先级", priority: 3 },
-            { label: "🚩 高优先级", priority: 5 }
+            { label: "⚪ 无优先级", priority: 0 },
+            { label: "🔵 低优先级", priority: 1 },
+            { label: "🟡 中优先级", priority: 3 },
+            { label: "🔴 高优先级", priority: 5 }
         ].forEach(item => {
             const el = this.menuElement!.createEl("div", { cls: "task-action-menu-option", text: item.label });
             el.addEventListener("click", (e) => {
