@@ -1534,7 +1534,28 @@ export class TaskView extends ItemView {
         }
 
         if (!this.isTaskComposerOpen) {
-            searchInput.addEventListener("focus", () => this.openTaskDateFilterMenu(searchInput));
+            let openedDateFilterFromPointer = false;
+            const openDateFilterFromInput = () => {
+                if (this.isTaskComposerOpen) return;
+                this.openTaskDateFilterMenu(searchInput);
+            };
+            searchInput.addEventListener("pointerdown", (event) => {
+                openedDateFilterFromPointer = true;
+                event.stopPropagation();
+                openDateFilterFromInput();
+                setTimeout(() => {
+                    openedDateFilterFromPointer = false;
+                }, 0);
+            });
+            searchInput.addEventListener("click", (event) => {
+                event.stopPropagation();
+            });
+            searchInput.addEventListener("focus", () => {
+                if (openedDateFilterFromPointer) return;
+                setTimeout(() => {
+                    if (document.activeElement === searchInput) openDateFilterFromInput();
+                }, 0);
+            });
         }
 
         searchInput.addEventListener("compositionstart", () => {
