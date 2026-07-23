@@ -1,6 +1,6 @@
 {
     "name": "obsidian-didasync",
-    "version": "1.7.5",
+    "version": "1.7.6",
     "description": "Sync tasks between Dida365 or TickTick and your notes.",
     "main": "main.js",
     "scripts": {
