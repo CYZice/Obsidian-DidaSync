@@ -70,6 +70,7 @@ export default class DidaSyncPlugin extends Plugin {
     noteSyncManager: NoteSyncManager;
     repeatTaskManager: RepeatTaskManager;
     taskNoteSyncManager: TaskNoteSyncManager;
+    settingTab: DidaSyncSettingTab;
     currentTaskActionMenu: TaskActionMenu | null = null;
     isTaskActionInProgress: boolean = false;
     isPluginActivated: boolean = false;
@@ -117,7 +118,8 @@ export default class DidaSyncPlugin extends Plugin {
             this.showTaskActionMenu(editor, cursor);
         }, () => this.settings.enableNativeTaskSync));
 
-        this.addSettingTab(new DidaSyncSettingTab(this.app, this));
+        this.settingTab = new DidaSyncSettingTab(this.app, this);
+        this.addSettingTab(this.settingTab);
 
         this.registerView(TASK_VIEW_TYPE, (leaf) => new TaskView(leaf, this));
         this.registerView(TIME_BLOCK_VIEW_TYPE, (leaf) => new DidaTimeBlockView(leaf, this));

@@ -5,6 +5,7 @@ import { OAuthSettingsView } from "./views/oauth-settings-view";
 import { SyncSettingsView } from "./views/sync-settings-view";
 import { UISettingsView } from "./views/ui-settings-view";
 import { AdvancedSettingsView } from "./views/advanced-settings-view";
+import { GuideSettingsView } from "./views/guide-settings-view";
 
 class LazyMcpSettingsView extends AbstractSettingsView {
     render(containerEl: HTMLElement): void {
@@ -40,6 +41,7 @@ export class DidaSyncSettingTab extends PluginSettingTab {
             { id: "oauth", name: "OAuth", view: new OAuthSettingsView(this.app, this.plugin) },
             { id: "sync", name: "同步", view: new SyncSettingsView(this.app, this.plugin) },
             { id: "ui", name: "视图", view: new UISettingsView(this.app, this.plugin) },
+            { id: "guide", name: "指南", view: new GuideSettingsView(this.app, this.plugin) },
             ...(Platform.isMobile ? [] : [{ id: "mcp", name: "MCP", view: new LazyMcpSettingsView(this.app, this.plugin) }]),
             { id: "advanced", name: "高级", view: new AdvancedSettingsView(this.app, this.plugin) }
         ];
@@ -75,5 +77,10 @@ export class DidaSyncSettingTab extends PluginSettingTab {
     private renderContent(container: HTMLElement, view: AbstractSettingsView) {
         container.empty();
         view.render(container);
+    }
+
+    openTab(tabId: string) {
+        this.activeTab = tabId;
+        this.display();
     }
 }
