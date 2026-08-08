@@ -93,7 +93,7 @@ export class SyncManager {
         }
 
         const title = `DidaSync inbox probe ${Date.now()}`;
-        const res = await this.plugin.apiClient.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task", {
+        const res = await this.plugin.apiClient.makeAuthenticatedRequest(this.plugin.apiClient.buildApiUrl("/task"), {
             method: "POST",
             body: JSON.stringify({ title, content: "", desc: "" })
         } as any);
@@ -108,7 +108,7 @@ export class SyncManager {
 
         if (data.id) {
             try {
-                await this.plugin.apiClient.makeAuthenticatedRequest(`https://api.dida365.com/open/v1/project/${inboxId}/task/${data.id}`, {
+                await this.plugin.apiClient.makeAuthenticatedRequest(this.plugin.apiClient.buildApiUrl(`/project/${inboxId}/task/${data.id}`), {
                     method: "DELETE"
                 } as any);
             } catch (_error) { }
@@ -536,7 +536,7 @@ export class SyncManager {
             let updatedCount = 0;
             const projectMap = new Map<string, any>();
             try {
-                const res = await this.plugin.apiClient.makeAuthenticatedRequest("https://api.dida365.com/open/v1/project");
+                const res = await this.plugin.apiClient.makeAuthenticatedRequest(this.plugin.apiClient.buildApiUrl("/project"));
                 if (res.ok) {
                     const list = await res.json();
                     if (Array.isArray(list)) {
@@ -575,9 +575,9 @@ export class SyncManager {
                         for (const project of list) {
                             let projectFetched = false;
                             for (const url of [
-                                `https://api.dida365.com/open/v1/project/${project.id}/task`,
-                                `https://api.dida365.com/open/v1/project/${project.id}/data`,
-                                `https://api.dida365.com/open/v1/task?projectId=${project.id}`
+                                this.plugin.apiClient.buildApiUrl(`/project/${project.id}/task`),
+                                this.plugin.apiClient.buildApiUrl(`/project/${project.id}/data`),
+                                this.plugin.apiClient.buildApiUrl(`/task?projectId=${project.id}`)
                             ]) {
                                 try {
                                     const res = await this.plugin.apiClient.makeAuthenticatedRequest(url);
@@ -625,10 +625,10 @@ export class SyncManager {
             try {
                 const remoteInboxProjectId = await this.ensureRemoteInboxProjectId().catch(() => "inbox");
                 for (const url of [
-                    `https://api.dida365.com/open/v1/project/${remoteInboxProjectId}/task`,
-                    `https://api.dida365.com/open/v1/project/${remoteInboxProjectId}/data`,
-                    `https://api.dida365.com/open/v1/task?projectId=${remoteInboxProjectId}`,
-                    "https://api.dida365.com/open/v1/task"
+                    this.plugin.apiClient.buildApiUrl(`/project/${remoteInboxProjectId}/task`),
+                    this.plugin.apiClient.buildApiUrl(`/project/${remoteInboxProjectId}/data`),
+                    this.plugin.apiClient.buildApiUrl(`/task?projectId=${remoteInboxProjectId}`),
+                    this.plugin.apiClient.buildApiUrl("/task")
                 ]) {
                     try {
                         const res = await this.plugin.apiClient.makeAuthenticatedRequest(url);
@@ -1039,7 +1039,7 @@ export class SyncManager {
             payload.repeatFlag = rf === "" ? "" : rf;
         }
         try {
-            const res = await this.plugin.apiClient.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task", {
+            const res = await this.plugin.apiClient.makeAuthenticatedRequest(this.plugin.apiClient.buildApiUrl("/task"), {
                 method: "POST",
                 body: JSON.stringify(payload)
             } as any);
@@ -1130,7 +1130,7 @@ export class SyncManager {
             }
             if (task.status === 2) ensureTaskCompletedTime(task);
             try {
-                const res = await this.plugin.apiClient.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task/" + task.didaId, {
+                const res = await this.plugin.apiClient.makeAuthenticatedRequest(this.plugin.apiClient.buildApiUrl("/task/" + task.didaId), {
                     method: "POST",
                     body: JSON.stringify(payload)
                 } as any);
@@ -1161,7 +1161,7 @@ export class SyncManager {
     private async completeTaskInDida(task: DidaTask) {
         if (!task.didaId) throw new Error("完成任务失败: 缺少远端 ID");
         const projectId = await this.resolveRemoteProjectId(task.projectId || "inbox");
-        const res = await this.plugin.apiClient.makeAuthenticatedRequest(`https://api.dida365.com/open/v1/project/${projectId}/task/${task.didaId}/complete`, {
+        const res = await this.plugin.apiClient.makeAuthenticatedRequest(this.plugin.apiClient.buildApiUrl(`/project/${projectId}/task/${task.didaId}/complete`), {
             method: "POST"
         } as any);
         if (!res.ok) throw new Error("完成任务失败: " + res.status);
@@ -1208,7 +1208,7 @@ export class SyncManager {
         } as DidaTask;
         if (trackPending) await this.queueOperation(task, "delete");
         try {
-            const res = await this.plugin.apiClient.makeAuthenticatedRequest(`https://api.dida365.com/open/v1/project/${remoteProjectId}/task/${taskId}`, {
+            const res = await this.plugin.apiClient.makeAuthenticatedRequest(this.plugin.apiClient.buildApiUrl(`/project/${remoteProjectId}/task/${taskId}`), {
                 method: "DELETE"
             } as any);
             if (!res.ok) throw new Error("删除任务失败: " + res.status);
@@ -1334,7 +1334,7 @@ export class SyncManager {
                 if (task.status !== 2) {
                     await this.updateTaskInDidaList(task);
                 } else {
-                    const res = await this.plugin.apiClient.makeAuthenticatedRequest(`https://api.dida365.com/open/v1/project/${projectId}/task/${task.didaId}/complete`, {
+                    const res = await this.plugin.apiClient.makeAuthenticatedRequest(this.plugin.apiClient.buildApiUrl(`/project/${projectId}/task/${task.didaId}/complete`), {
                         method: "POST"
                     } as any);
                     if (!res.ok) throw new Error("完成任务失败: " + res.status);
@@ -1388,7 +1388,7 @@ export class SyncManager {
 
     async _verifySingleDidaTaskStatus(projectId: string, didaId: string): Promise<{ kind: string; data?: any; httpStatus?: number; error?: any }> {
         if (!didaId) return { kind: "uncertain" };
-        const url = `https://api.dida365.com/open/v1/project/${projectId}/task/${didaId}`;
+        const url = this.plugin.apiClient.buildApiUrl(`/project/${projectId}/task/${didaId}`);
         try {
             const res = await this.plugin.apiClient.makeAuthenticatedRequest(url);
             if (res.status === 404) return { kind: "not_found" };

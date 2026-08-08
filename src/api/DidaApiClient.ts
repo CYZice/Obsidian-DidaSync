@@ -1,7 +1,7 @@
 import { Notice, Platform, requestUrl } from "obsidian";
 import DidaSyncPlugin from "../main";
 import { AuthUrlModal } from "../modals/AuthUrlModal";
-import { DidaSyncSettings, OAUTH_CONFIG, OAuthCallbackMode } from "../types";
+import { DIDA_SERVICE_CONFIGS, DidaServiceConfig, DidaServiceRegion, DidaSyncSettings, OAuthCallbackMode } from "../types";
 import { formatCompletedTime } from "../utils";
 
 type ResponseLike = {
@@ -24,6 +24,18 @@ export class DidaApiClient {
 
     get settings(): DidaSyncSettings {
         return this.plugin.settings;
+    }
+
+    getServiceRegion(): DidaServiceRegion {
+        return this.settings.serviceRegion === "ticktick" ? "ticktick" : "dida365";
+    }
+
+    getServiceConfig(): DidaServiceConfig {
+        return DIDA_SERVICE_CONFIGS[this.getServiceRegion()];
+    }
+
+    buildApiUrl(path: string): string {
+        return this.getServiceConfig().apiBaseUrl + (path.startsWith("/") ? path : `/${path}`);
     }
 
     getCallbackMode(): OAuthCallbackMode {
@@ -96,9 +108,9 @@ export class DidaApiClient {
             client_id: this.settings.clientId,
             redirect_uri: redirectUri,
             response_type: "code",
-            scope: OAUTH_CONFIG.scope
+            scope: this.getServiceConfig().scope
         });
-        return OAUTH_CONFIG.authUrl + "?" + params.toString();
+        return this.getServiceConfig().authUrl + "?" + params.toString();
     }
 
     async startManualOAuthFlow() {
@@ -324,7 +336,7 @@ export class DidaApiClient {
             redirect_uri: redirectUri
         }).toString();
 
-        const res = await this.requestForm(OAUTH_CONFIG.tokenUrl, data);
+        const res = await this.requestForm(this.getServiceConfig().tokenUrl, data);
         if (res.ok) return await res.json();
         throw new Error(`Token请求失败: ${res.status} ` + await res.text());
     }
@@ -339,7 +351,7 @@ export class DidaApiClient {
             refresh_token: this.settings.refreshToken
         }).toString();
 
-        const res = await this.requestForm(OAUTH_CONFIG.tokenUrl, data);
+        const res = await this.requestForm(this.getServiceConfig().tokenUrl, data);
         if (!res.ok) throw new Error("Token刷新失败");
         const parsed = await res.json();
         this.settings.accessToken = parsed.access_token;
@@ -422,13 +434,13 @@ export class DidaApiClient {
     }
 
     async getProjects(): Promise<any[]> {
-        const res = await this.makeAuthenticatedRequest("https://api.dida365.com/open/v1/project");
+        const res = await this.makeAuthenticatedRequest(this.buildApiUrl("/project"));
         if (res.ok) return await res.json();
         throw new Error("Failed to fetch projects");
     }
 
     async getProjectTasks(projectId: string): Promise<any[]> {
-        for (const url of [`https://api.dida365.com/open/v1/project/${projectId}/task`, `https://api.dida365.com/open/v1/project/${projectId}/data`, `https://api.dida365.com/open/v1/task?projectId=${projectId}`]) {
+        for (const url of [this.buildApiUrl(`/project/${projectId}/task`), this.buildApiUrl(`/project/${projectId}/data`), this.buildApiUrl(`/task?projectId=${projectId}`)]) {
             try {
                 const res = await this.makeAuthenticatedRequest(url);
                 if (res.ok) {
@@ -456,7 +468,7 @@ export class DidaApiClient {
         if (taskData && taskData.isAllDay) {
             taskData.timeZone = taskData.timeZone || this.plugin.getUserTimeZone();
         }
-        const res = await this.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task", {
+        const res = await this.makeAuthenticatedRequest(this.buildApiUrl("/task"), {
             method: "POST",
             body: JSON.stringify(taskData)
         });
@@ -477,7 +489,7 @@ export class DidaApiClient {
         if (taskData && taskData.status === 2 && !taskData.completedTime) {
             taskData.completedTime = formatCompletedTime();
         }
-        const res = await this.makeAuthenticatedRequest(`https://api.dida365.com/open/v1/task/${taskId}`, {
+        const res = await this.makeAuthenticatedRequest(this.buildApiUrl(`/task/${taskId}`), {
             method: "POST",
             body: JSON.stringify(taskData)
         });
@@ -493,14 +505,14 @@ export class DidaApiClient {
     }
 
     async deleteTask(projectId: string, taskId: string): Promise<void> {
-        const res = await this.makeAuthenticatedRequest(`https://api.dida365.com/open/v1/project/${projectId}/task/${taskId}`, {
+        const res = await this.makeAuthenticatedRequest(this.buildApiUrl(`/project/${projectId}/task/${taskId}`), {
             method: "DELETE"
         });
         if (!res.ok) throw new Error("Failed to delete task");
     }
 
     async completeTask(projectId: string, taskId: string): Promise<void> {
-        const res = await this.makeAuthenticatedRequest(`https://api.dida365.com/open/v1/project/${projectId}/task/${taskId}/complete`, {
+        const res = await this.makeAuthenticatedRequest(this.buildApiUrl(`/project/${projectId}/task/${taskId}/complete`), {
             method: "POST"
         });
         if (!res.ok) throw new Error("Failed to complete task");
@@ -539,14 +551,14 @@ export class DidaApiClient {
 
     async moveTask(fromProjectId: string, toProjectId: string, taskId: string): Promise<any> {
         const operation = { fromProjectId, toProjectId, taskId };
-        const arrayRes = await this.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task/move", {
+        const arrayRes = await this.makeAuthenticatedRequest(this.buildApiUrl("/task/move"), {
             method: "POST",
             body: JSON.stringify([operation])
         });
         const arrayBody = await this.readResponseBody(arrayRes);
         if (arrayRes.ok && this.isMoveResultSuccessful(arrayBody.data, taskId)) return arrayBody.data;
 
-        const objectRes = await this.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task/move", {
+        const objectRes = await this.makeAuthenticatedRequest(this.buildApiUrl("/task/move"), {
             method: "POST",
             body: JSON.stringify(operation)
         });
@@ -557,7 +569,7 @@ export class DidaApiClient {
 
     async moveTasks(operations: Array<{ fromProjectId: string; toProjectId: string; taskId: string }>): Promise<any[]> {
         if (!Array.isArray(operations) || operations.length === 0) throw new Error("Move operations are required");
-        const res = await this.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task/move", {
+        const res = await this.makeAuthenticatedRequest(this.buildApiUrl("/task/move"), {
             method: "POST",
             body: JSON.stringify(operations)
         });
@@ -574,7 +586,7 @@ export class DidaApiClient {
         if (Array.isArray(filters.projectIds) && filters.projectIds.length > 0) payload.projectIds = filters.projectIds;
         if (filters.startDate) payload.startDate = filters.startDate;
         if (filters.endDate) payload.endDate = filters.endDate;
-        const res = await this.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task/completed", {
+        const res = await this.makeAuthenticatedRequest(this.buildApiUrl("/task/completed"), {
             method: "POST",
             body: JSON.stringify(payload)
         });
@@ -599,7 +611,7 @@ export class DidaApiClient {
         if (Array.isArray(filters.tag) && filters.tag.length > 0) payload.tag = filters.tag;
         if (Array.isArray(filters.status) && filters.status.length > 0) payload.status = filters.status;
         if (Array.isArray(filters.kind) && filters.kind.length > 0) payload.kind = filters.kind;
-        const res = await this.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task/filter", {
+        const res = await this.makeAuthenticatedRequest(this.buildApiUrl("/task/filter"), {
             method: "POST",
             body: JSON.stringify(payload)
         });

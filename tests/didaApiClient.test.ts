@@ -35,6 +35,7 @@ async function run() {
     const { DidaApiClient } = require("../src/api/DidaApiClient");
     const plugin = {
         settings: {
+            serviceRegion: "dida365",
             clientId: "client-id",
             clientSecret: "client-secret",
             accessToken: "access-old",
@@ -58,6 +59,12 @@ async function run() {
     assert.match(authUrl, /client_id=client-id/);
     assert.match(authUrl, /redirect_uri=http%3A%2F%2F127\.0\.0\.1%3A8765%2Fcallback/);
     assert.match(authUrl, /scope=tasks%3Awrite\+tasks%3Aread/);
+
+    plugin.settings.serviceRegion = "ticktick";
+    assert.equal(client.getServiceConfig().developerUrl, "https://developer.ticktick.com/manage");
+    assert.equal(client.buildApiUrl("/task"), "https://api.ticktick.com/open/v1/task");
+    assert.match(client.buildAuthUrl(), /^https:\/\/ticktick\.com\/oauth\/authorize\?/);
+    plugin.settings.serviceRegion = "dida365";
 
     const originalWindow = (globalThis as any).window;
 
@@ -169,6 +176,13 @@ async function run() {
     queuedResponses = [{ status: 200, text: "{\"success\":true}", json: { success: true } }];
     await client.moveTask("p1", "inbox", "task-3");
     assert.deepEqual(JSON.parse(requests[0].body), [{ fromProjectId: "p1", toProjectId: "inbox", taskId: "task-3" }]);
+
+    plugin.settings.serviceRegion = "ticktick";
+    requests.length = 0;
+    queuedResponses = [{ status: 200, text: "[]", json: [] }];
+    await client.filterTasks({ kind: ["NOTE"] });
+    assert.equal(requests.at(-1).url, "https://api.ticktick.com/open/v1/task/filter");
+    plugin.settings.serviceRegion = "dida365";
 
     requests.length = 0;
     queuedResponses = [

@@ -911,7 +911,7 @@ export default class DidaSyncPlugin extends Plugin {
 
     async createRemoteProject(name: string) {
         const res = await this.apiClient.makeAuthenticatedRequest(
-            "https://api.dida365.com/open/v1/project",
+            this.apiClient.buildApiUrl("/project"),
             { method: "POST", body: JSON.stringify({ name }) }
         );
         if (!res.ok) {
@@ -1107,7 +1107,7 @@ export default class DidaSyncPlugin extends Plugin {
 
     async deleteRemoteProject(projectId: string) {
         const res = await this.apiClient.makeAuthenticatedRequest(
-            `https://api.dida365.com/open/v1/project/${projectId}`,
+            this.apiClient.buildApiUrl(`/project/${projectId}`),
             { method: "DELETE" }
         );
         if (!res.ok) {
@@ -1168,7 +1168,7 @@ export default class DidaSyncPlugin extends Plugin {
 
     async renameRemoteProject(projectId: string, name: string) {
         const res = await this.apiClient.makeAuthenticatedRequest(
-            `https://api.dida365.com/open/v1/project/${projectId}`,
+            this.apiClient.buildApiUrl(`/project/${projectId}`),
             { method: "POST", body: JSON.stringify({ name }) }
         );
         if (!res.ok) {
@@ -2890,7 +2890,7 @@ export default class DidaSyncPlugin extends Plugin {
         if (typeof metadata.repeatFlag === "string") data.repeatFlag = metadata.repeatFlag;
         if (metadata.projectId && metadata.projectId !== "inbox") data.projectId = metadata.projectId;
         try {
-            const res = await this.apiClient.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task", {
+            const res = await this.apiClient.makeAuthenticatedRequest(this.apiClient.buildApiUrl("/task"), {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"

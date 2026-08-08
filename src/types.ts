@@ -188,8 +188,38 @@ export interface SyncResult {
 }
 
 export type OAuthCallbackMode = "localhost" | "ipv4";
+export type DidaServiceRegion = "dida365" | "ticktick";
+
+export interface DidaServiceConfig {
+    label: string;
+    developerUrl: string;
+    authUrl: string;
+    tokenUrl: string;
+    apiBaseUrl: string;
+    scope: string;
+}
+
+export const DIDA_SERVICE_CONFIGS: Record<DidaServiceRegion, DidaServiceConfig> = {
+    dida365: {
+        label: "滴答清单（中国区）",
+        developerUrl: "https://developer.dida365.com/manage",
+        authUrl: "https://dida365.com/oauth/authorize",
+        tokenUrl: "https://dida365.com/oauth/token",
+        apiBaseUrl: "https://api.dida365.com/open/v1",
+        scope: "tasks:write tasks:read"
+    },
+    ticktick: {
+        label: "TickTick（国际版）",
+        developerUrl: "https://developer.ticktick.com/manage",
+        authUrl: "https://ticktick.com/oauth/authorize",
+        tokenUrl: "https://ticktick.com/oauth/token",
+        apiBaseUrl: "https://api.ticktick.com/open/v1",
+        scope: "tasks:write tasks:read"
+    }
+};
 
 export interface DidaSyncSettings {
+    serviceRegion: DidaServiceRegion;
     clientId: string;
     clientSecret: string;
     accessToken: string;
@@ -277,6 +307,7 @@ export interface DidaSyncSettings {
 }
 
 export const DEFAULT_SETTINGS: DidaSyncSettings = {
+    serviceRegion: "dida365",
     clientId: "",
     clientSecret: "",
     accessToken: "",
@@ -347,10 +378,4 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     completedTasksQuery: {},
     completedTaskCacheSegments: [],
     pendingSyncOperations: []
-};
-
-export const OAUTH_CONFIG = {
-    authUrl: "https://dida365.com/oauth/authorize",
-    tokenUrl: "https://dida365.com/oauth/token",
-    scope: "tasks:write tasks:read"
 };

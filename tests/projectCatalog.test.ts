@@ -112,6 +112,7 @@ async function run() {
 
     let createdTaskPayload: any = null;
     plugin.apiClient = {
+        buildApiUrl(path: string) { return `https://api.dida365.com/open/v1${path}`; },
         async makeAuthenticatedRequest(_url: string, options: any) {
             createdTaskPayload = JSON.parse(options.body);
             return { ok: true, async json() { return { id: "remote-task", projectId: "p2" }; } };

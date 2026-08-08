@@ -1,6 +1,6 @@
 import { App, Notice, Platform, Setting } from "obsidian";
 import DidaSyncPlugin from "../../main";
-import { OAuthCallbackMode } from "../../types";
+import { DidaServiceRegion, OAuthCallbackMode } from "../../types";
 import { debounce } from "../../utils";
 import { AbstractSettingsView } from "./abstract-settings-view";
 
@@ -12,16 +12,37 @@ export class OAuthSettingsView extends AbstractSettingsView {
     render(containerEl: HTMLElement): void {
         const oauthContainer = containerEl.createDiv();
         oauthContainer.createEl("h3", { text: "OAuth 配置" });
+        const serviceConfig = this.plugin.apiClient.getServiceConfig();
+
+        new Setting(oauthContainer)
+            .setName("服务区域")
+            .setDesc("切换后需使用该区域开发者后台创建的应用重新认证。")
+            .addDropdown((dropdown) => dropdown
+                .addOption("dida365", "滴答清单（中国区）")
+                .addOption("ticktick", "TickTick（国际版）")
+                .setValue(this.plugin.apiClient.getServiceRegion())
+                .onChange(async (value: DidaServiceRegion) => {
+                    const region = value === "ticktick" ? "ticktick" : "dida365";
+                    if (region === this.plugin.apiClient.getServiceRegion()) return;
+                    this.plugin.apiClient.cleanupOAuthServer();
+                    this.plugin.settings.serviceRegion = region;
+                    this.plugin.settings.accessToken = "";
+                    this.plugin.settings.refreshToken = "";
+                    await this.plugin.saveSettings();
+                    new Notice(`已切换至 ${this.plugin.apiClient.getServiceConfig().label}，请重新认证。`);
+                    containerEl.empty();
+                    this.render(containerEl);
+                }));
 
         const step1Div = oauthContainer.createDiv("dida-settings-block");
         step1Div.createEl("p", {
-            text: "第 1 步：复制下面的链接到浏览器，进入滴答清单开发者后台，创建应用并获取 Client ID 和 Client Secret。"
+            text: `第 1 步：复制下面的链接到浏览器，进入${serviceConfig.label}开发者后台，创建应用并获取 Client ID 和 Client Secret。`
         });
 
         const linkDiv = step1Div.createDiv("dida-settings-inline-row dida-settings-link-box");
         const manageInput = linkDiv.createEl("input", {
             type: "text",
-            value: "https://developer.dida365.com/manage"
+            value: serviceConfig.developerUrl
         });
         manageInput.readOnly = true;
         manageInput.addClass("dida-settings-readonly-input");

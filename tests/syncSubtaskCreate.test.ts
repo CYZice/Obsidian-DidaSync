@@ -18,6 +18,7 @@ const originalLoad = (Module as any)._load;
 };
 
 const { SyncManager } = require("../src/managers/SyncManager");
+const buildApiUrl = (path: string) => `https://api.dida365.com/open/v1${path}`;
 
 async function run() {
     const calls: any[] = [];
@@ -42,6 +43,7 @@ async function run() {
         saveSettingsCalls: 0,
         async saveSettings() { this.saveSettingsCalls++; },
         apiClient: {
+            buildApiUrl,
             async makeAuthenticatedRequest(url: string, options: any = {}) {
                 calls.push({ url, payload: options.body ? JSON.parse(options.body) : null });
                 return {
@@ -225,6 +227,7 @@ async function run() {
         async saveSettings() { },
         refreshTaskView() { },
         apiClient: {
+            buildApiUrl,
             async makeAuthenticatedRequest(url: string, options: any = {}) {
                 const payload = options.body ? JSON.parse(options.body) : null;
                 inboxProbeCalls.push({ url, method: options.method || "GET", payload });
@@ -391,6 +394,7 @@ async function run() {
             }
         },
         apiClient: {
+            buildApiUrl,
             async makeAuthenticatedRequest(url: string) {
                 if (url.endsWith("/open/v1/project")) {
                     return {

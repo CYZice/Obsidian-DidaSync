@@ -24,6 +24,7 @@ const originalLoad = (Module as any)._load;
 
 async function run() {
     const { SyncManager } = require("../src/managers/SyncManager");
+    const buildApiUrl = (path: string) => `https://api.dida365.com/open/v1${path}`;
     const pluginClassifiers = {
         isNoteProjectLike(project: any) {
             const kind = typeof project?.kind === "string" ? project.kind.trim().toUpperCase() : "";
@@ -108,6 +109,7 @@ async function run() {
             syncConsistencyMeta: {}
         },
         apiClient: {
+            buildApiUrl,
             async makeAuthenticatedRequest() {
                 return { ok: true, status: 200, async json() { return []; } };
             }
@@ -156,6 +158,7 @@ async function run() {
     const partialPlugin = {
         settings: { accessToken: "token", tasks: [partialTask], pendingSyncOperations: [], reverseCompletionMeta: {}, syncConsistencyMeta: {} },
         apiClient: {
+            buildApiUrl,
             async makeAuthenticatedRequest(url: string) {
                 if (url.endsWith("/project")) return { ok: true, status: 200, async json() { return [{ id: "a", name: "A" }, { id: "b", name: "B" }]; } };
                 if (url.includes("/project/a/")) return { ok: true, status: 200, async json() { return []; } };
@@ -191,6 +194,7 @@ async function run() {
     const dirtyPlugin = {
         settings: { accessToken: "token", tasks: [dirtyTask], pendingSyncOperations: [], reverseCompletionMeta: {}, syncConsistencyMeta: {} },
         apiClient: {
+            buildApiUrl,
             async makeAuthenticatedRequest(url: string) {
                 if (uploadShouldFail) return { ok: false, status: 503, async json() { return {}; }, async text() { return "unavailable"; } };
                 if (url.endsWith("/project")) return { ok: true, status: 200, async json() { return [{ id: "p1", name: "P1" }]; } };
@@ -221,6 +225,7 @@ async function run() {
     const emptyResponsePlugin = {
         settings: { accessToken: "token", tasks: [], pendingSyncOperations: [], reverseCompletionMeta: {}, syncConsistencyMeta: {} },
         apiClient: {
+            buildApiUrl,
             async makeAuthenticatedRequest() {
                 return {
                     ok: true,
@@ -279,6 +284,7 @@ async function run() {
             syncConsistencyMeta: {}
         },
         apiClient: {
+            buildApiUrl,
             async moveTask() {
                 placementMoveCount++;
             },
