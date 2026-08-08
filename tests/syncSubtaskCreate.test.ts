@@ -303,7 +303,7 @@ async function run() {
         async saveSettings() { }
     };
     await new SyncManager(deletedPlugin).markCompletedNativeTasksWithLinks([]);
-    assert.equal(deletedMarkdown, "> - [ ] 云端已删除 🗑️");
+    assert.equal(deletedMarkdown, "> - [ ] 云端已删除 ⚪ 🗑️");
     assert.equal(deletedPlugin.settings.tasks.length, 0);
 
     const convertedNotePlugin: any = {

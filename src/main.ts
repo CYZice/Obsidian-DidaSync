@@ -3052,7 +3052,7 @@ export default class DidaSyncPlugin extends Plugin {
                     cleanTitle = cleanTitle.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, "").trim();
                     cleanTitle = cleanTitle.replace(/\s*\[[0-9]{1,2}:[0-9]{2}\s*-\s*[0-9]{1,2}:[0-9]{2}\]\s*/g, "").trim();
                     cleanTitle = cleanTitle.replace(/\s*🔁\s*every.*?(?=\s+(?:📅|🔴|🟡|🔵|⚪|🚩|\^)|$)/g, "").trim();
-                    cleanTitle = cleanTitle.replace(/🔴|🟡|🔵|⚪|🚩\s*(?:高|中|低)(?:优先级)?/g, "").trim();
+                    cleanTitle = cleanTitle.replace(/🔴|🟡|🔵|⚪/g, "").trim();
                     cleanTitle = cleanTitle.replace(/\s+\^(?:\[[^\]]+\]|[^\s]+)/g, "").replace(/\s+/g, " ").trim();
                     task.title = cleanTitle;
                 }

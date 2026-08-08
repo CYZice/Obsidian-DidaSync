@@ -34,22 +34,24 @@ export class ScopedPopup {
     windowBlurHandler: (() => void) | null = null;
     visibilityHandler: (() => void) | null = null;
     extraClass: string;
+    withOverlay: boolean;
 
-    constructor(triggerElement: HTMLElement | null, scopeElement: HTMLElement | null = null, extraClass: string = "") {
+    constructor(triggerElement: HTMLElement | null, scopeElement: HTMLElement | null = null, extraClass: string = "", withOverlay: boolean = true) {
         this.triggerElement = triggerElement;
         this.scopeElement = scopeElement;
         this.extraClass = extraClass;
+        this.withOverlay = withOverlay;
     }
 
     open(render: (container: HTMLElement) => void): void {
         ScopedPopup.activePopup?.close();
         ScopedPopup.activePopup = this;
-        this.overlay = document.body.createDiv("dida-calendar-overlay dida-schedule-popup-layer");
+        if (this.withOverlay) this.overlay = document.body.createDiv("dida-calendar-overlay dida-schedule-popup-layer");
         this.container = document.body.createDiv(`dida-calendar-popup dida-schedule-popup-layer ${this.extraClass}`.trim());
         try {
             render(this.container);
             this.position();
-            this.overlay.onclick = () => this.close();
+            if (this.overlay) this.overlay.onclick = () => this.close();
             this.container.onclick = event => event.stopPropagation();
             this.escapeHandler = event => {
                 if (event.key === "Escape") this.close();
@@ -85,18 +87,20 @@ export class ScopedPopup {
     }
 
     position(): void {
-        if (!this.container || !this.overlay) return;
+        if (!this.container) return;
         const scope = this.getScopeRect();
         this.container.setCssStyles({
             maxWidth: `${Math.max(240, scope.width - 16)}px`,
             maxHeight: `${Math.max(240, scope.height - 16)}px`
         });
-        this.overlay.setCssStyles({
-            top: `${scope.top}px`,
-            left: `${scope.left}px`,
-            width: `${scope.width}px`,
-            height: `${scope.height}px`
-        });
+        if (this.overlay) {
+            this.overlay.setCssStyles({
+                top: `${scope.top}px`,
+                left: `${scope.left}px`,
+                width: `${scope.width}px`,
+                height: `${scope.height}px`
+            });
+        }
 
         const popup = this.container.getBoundingClientRect();
         const margin = 8;

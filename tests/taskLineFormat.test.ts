@@ -59,7 +59,7 @@ const didaId = "6a24462bc500bf31a90ce7dd";
     assert.ok(line.startsWith("> - [ ] 完整任务 "));
     assert.ok(line.includes(`didaId=${didaId}`));
     assert.ok(line.includes("2026-06-09"));
-    assert.ok(line.includes("🚩中"));
+    assert.ok(line.includes("🟡"));
     assert.ok(line.includes("every week"));
 }
 
@@ -111,12 +111,17 @@ const didaId = "6a24462bc500bf31a90ce7dd";
 }
 
 {
-    const parsed = parseTaskLine("- [ ] 项目任务 ^[Project Alpha] 🚩高");
+    const parsed = parseTaskLine("- [ ] 项目任务 ^[Project Alpha] 🔴");
     assert.equal(parsed?.title, "项目任务");
     assert.equal(parsed?.projectName, "Project Alpha");
     assert.equal(parsed?.priority, 5);
     const formatted = formatTaskLine("- [ ] 项目任务 ^PROJECT 🔴", {});
-    assert.equal(formatted, "- [ ] 项目任务 🚩高 ^PROJECT");
+    assert.equal(formatted, "- [ ] 项目任务 ^PROJECT 🔴");
+    assert.equal(parseTaskLine(formatted)?.projectName, null);
+    assert.equal(formatTaskLine("- [ ] 项目任务 🔴", { projectName: "PROJECT" }), "- [ ] 项目任务 🔴 ^[PROJECT]");
+    const flagTask = parseTaskLine("- [ ] 旗帜任务 🚩高");
+    assert.equal(flagTask?.priority, 0);
+    assert.equal(flagTask?.title, "旗帜任务 🚩高");
 }
 
 {
@@ -125,7 +130,7 @@ const didaId = "6a24462bc500bf31a90ce7dd";
         dueDate: "2026-06-10T00:00:00+0800",
         isAllDay: true
     });
-    assert.equal(updated, "- [ ] 只设置日期 📅 2026-06-10");
+    assert.equal(updated, "- [ ] 只设置日期 📅 2026-06-10 ⚪");
 }
 
 {
@@ -133,7 +138,7 @@ const didaId = "6a24462bc500bf31a90ce7dd";
         didaId: null,
         disconnected: true
     });
-    assert.equal(disconnected, "- [ ] 已删除任务 🗑️");
+    assert.equal(disconnected, "- [ ] 已删除任务 ⚪ 🗑️");
     const parsed = parseTaskLine(disconnected);
     assert.equal(parsed?.title, "已删除任务");
     assert.equal(parsed?.didaId, null);

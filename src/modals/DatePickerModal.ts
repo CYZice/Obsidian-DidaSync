@@ -21,7 +21,7 @@ export class DatePickerModal {
         triggerElement: HTMLElement | null,
         plugin: DidaSyncPlugin | null = null,
         taskIndex: number | null = null,
-        options: { dateOnly?: boolean; scopeElement?: HTMLElement | null; initialSchedule?: DatePickerModalInitialSchedule | null; popupClass?: string } = {}
+        options: { dateOnly?: boolean; scopeElement?: HTMLElement | null; initialSchedule?: DatePickerModalInitialSchedule | null; popupClass?: string; withOverlay?: boolean } = {}
     ) {
         this.app = app;
         this.currentDate = currentDate;
@@ -31,7 +31,7 @@ export class DatePickerModal {
         this.taskIndex = taskIndex;
         this.dateOnly = options.dateOnly === true;
         this.initialSchedule = options.initialSchedule || null;
-        this.popup = new ScopedPopup(triggerElement, options.scopeElement || null, options.popupClass || "");
+        this.popup = new ScopedPopup(triggerElement, options.scopeElement || null, options.popupClass || "", options.withOverlay !== false);
     }
 
     open(): void {

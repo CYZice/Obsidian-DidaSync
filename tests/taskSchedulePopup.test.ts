@@ -102,6 +102,13 @@ repeatOverlay.remove();
 emitDocument("pointerdown", { target: new FakeElement() });
 assert.equal(body.children.length, 0, "clicking elsewhere in Obsidian should close both popup layers");
 
+const overlayFreePopup = new ScopedPopup(null, scope as any, "", false);
+overlayFreePopup.open(container => container.createDiv("calendar-content"));
+assert.ok(overlayFreePopup.container, "an overlay-free popup should remain mounted after rendering");
+assert.equal(body.children.length, 1, "an overlay-free popup should only mount its content layer");
+emitDocument("pointerdown", { target: new FakeElement() });
+assert.equal(body.children.length, 0, "an overlay-free popup should close when clicking elsewhere");
+
 const blurredPopup = new ScopedPopup(null, scope as any);
 blurredPopup.open(container => container.createDiv("calendar-content"));
 emitWindow("blur");
