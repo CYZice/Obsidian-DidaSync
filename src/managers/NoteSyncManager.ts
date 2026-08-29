@@ -1,6 +1,8 @@
 import { App, normalizePath, Notice, TFile } from "obsidian";
 import DidaSyncPlugin from "../main";
 import { DidaNoteSyncRecord, DidaNoteSyncRunSource, DidaNoteSyncStatus, DidaNoteSyncSummary, DidaTask } from "../types";
+import { resolveWholeEntityConflict } from "../sync/WholeEntityConflictPolicy";
+import { LocalDeletionTracker } from "../sync/LocalDeletionTracker";
 
 interface ParsedNoteFile {
     frontmatter: Record<string, any>;
@@ -23,10 +25,12 @@ const DUPLICATE_LOCAL_FILE_ERROR = "检测到多个本地 Markdown 拥有相同 
 export class NoteSyncManager {
     app: App;
     plugin: DidaSyncPlugin;
+    private localDeletionTracker: LocalDeletionTracker;
 
     constructor(app: App, plugin: DidaSyncPlugin) {
         this.app = app;
         this.plugin = plugin;
+        this.localDeletionTracker = new LocalDeletionTracker(app, plugin);
     }
 
     async syncNow(options: NoteSyncOptions = {}): Promise<DidaNoteSyncSummary> {
@@ -48,6 +52,7 @@ export class NoteSyncManager {
             }
 
             this.clearCachedNoteTasks();
+            await this.localDeletionTracker.scan();
 
             const remoteNotes = await this.fetchRemoteNotes();
             summary.fetched = remoteNotes.length;
@@ -300,6 +305,9 @@ export class NoteSyncManager {
         if (record && this.isDuplicateLocalFileError(record.error)) {
             throw new Error(record.error || DUPLICATE_LOCAL_FILE_ERROR);
         }
+        if (record && this.localDeletionTracker.list().some(candidate => candidate.id === `note:${didaId}`)) {
+            return "skipped";
+        }
 
         const path = record?.path || await this.buildUniqueNotePath(note, didaId);
         const file = await this.ensureNoteFile(path, note);
@@ -316,9 +324,23 @@ export class NoteSyncManager {
         const localChanged = localHash !== record.lastSyncedContentHash;
 
         if (localChanged && remoteChanged) {
-            await this.markConflict(file, current, note, record);
-            this.upsertRecord(note, file.path, record.lastSyncedContentHash, "conflict", "本地和云端同时修改，请手动合并后重新同步。");
-            return "conflicts";
+            const decision = resolveWholeEntityConflict({
+                localModifiedAt: file.stat?.mtime,
+                remoteModifiedAt: (note as any).updatedAt || (note as any).modifiedTime
+            });
+            if (decision === "unresolvable") {
+                throw new Error("本地和云端笔记均有修改，但修改时间无法比较，已停止覆盖");
+            }
+            if (decision === "local") {
+                await this.pushLocalToRemote(note, current.body);
+                const pushedHash = this.hashMarkdownBody(current.body);
+                await this.writeSyncedFile(file, note, current.body, pushedHash, "synced");
+                this.upsertRecord(note, file.path, pushedHash, "synced");
+                return "pushed";
+            }
+            await this.writeSyncedFile(file, note, body, remoteHash, "synced");
+            this.upsertRecord(note, file.path, remoteHash, "synced");
+            return "synced";
         }
 
         if (localChanged) {
@@ -600,27 +622,6 @@ export class NoteSyncManager {
 
     private async writeSyncedFile(file: TFile, note: DidaTask, body: string, hash: string, status: "synced" | "conflict") {
         await this.app.vault.modify(file, this.renderFile(note, body, hash, status));
-    }
-
-    private async markConflict(file: TFile, parsed: ParsedNoteFile, note: DidaTask, record: DidaNoteSyncRecord) {
-        const frontmatter = {
-            ...parsed.frontmatter,
-            didaNoteId: note.didaId || note.id,
-            didaNoteKind: "NOTE",
-            didaNoteSyncStatus: "conflict",
-            didaNoteConflictAt: new Date().toISOString(),
-            didaEtag: note.etag || "",
-            didaModifiedTime: (note as any).updatedAt || "",
-            didaLastSyncedContentHash: record.lastSyncedContentHash,
-            didaLastSyncedAt: new Date().toISOString()
-        };
-        const body = [
-            "> [!warning] 滴答笔记同步冲突",
-            "> 本地 Markdown 和滴答云端 NOTE 都发生了修改。请手动合并后删除本提示，并重新执行滴答笔记同步。",
-            "",
-            parsed.body
-        ].join("\n");
-        await this.app.vault.modify(file, this.stringifyMarkdown(frontmatter, body));
     }
 
     private renderFile(note: DidaTask, body: string, hash: string, status: "synced" | "conflict") {

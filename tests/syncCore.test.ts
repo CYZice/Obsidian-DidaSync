@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { reconcileMissingRemoteTasks } from "../src/sync/RemoteTaskReconciler";
 import { SyncRunCoordinator } from "../src/sync/SyncRunCoordinator";
 import { shouldPreferPendingLocalChange } from "../src/sync/TaskConflictPolicy";
+import { resolvePendingTaskConflict } from "../src/sync/TaskConflictPolicy";
+import { resolveWholeEntityConflict } from "../src/sync/WholeEntityConflictPolicy";
+import { UnifiedSyncEngine } from "../src/sync/UnifiedSyncEngine";
+import { SyncOutbox } from "../src/sync/SyncOutbox";
 
 type Result = { outcome: "success" | "failed" | "skipped"; runs: number; errors: string[] };
 
@@ -60,7 +64,53 @@ async function testConflictPolicy() {
     };
     assert.equal(shouldPreferPendingLocalChange(operation, { modifiedTime: "2026-08-29T11:00:00Z" }), true);
     assert.equal(shouldPreferPendingLocalChange(operation, { modifiedTime: "2026-08-29T13:00:00Z" }), false);
-    assert.equal(shouldPreferPendingLocalChange(operation, {}), true);
+    assert.equal(resolvePendingTaskConflict(operation, {}), "unresolvable");
+    assert.equal(resolveWholeEntityConflict({ localModifiedAt: operation.modifiedAt, remoteModifiedAt: operation.modifiedAt }), "remote");
+}
+
+async function testUnifiedEngineScopeIsolation() {
+    let taskRuns = 0;
+    let noteRuns = 0;
+    const engine = new UnifiedSyncEngine({
+        taskScope: {
+            runTaskScope: async () => {
+                taskRuns++;
+                return { outcome: "success", uploaded: 1, downloaded: 2, failedScopes: [], failedOperations: [], cleanupPerformed: true };
+            }
+        },
+        noteScope: {
+            syncNow: async () => {
+                noteRuns++;
+                throw new Error("note scope failed");
+            }
+        },
+        shouldRunNotes: () => true
+    });
+    const all = await engine.run({ source: "manual", scope: "all" });
+    assert.equal(all.outcome, "partial");
+    assert.equal(all.uploaded, 1);
+    assert.equal(all.downloaded, 2);
+    assert.deepEqual(all.scopeResults?.map(scope => scope.key), ["tasks", "notes"]);
+    const tasksOnly = await engine.run({ source: "manual", scope: "tasks" });
+    assert.equal(tasksOnly.outcome, "success");
+    assert.equal(taskRuns, 2);
+    assert.equal(noteRuns, 1);
+}
+
+async function testPersistentOutboxState() {
+    const host: any = { settings: { pendingSyncOperations: [] }, saveSettings: async () => { } };
+    const outbox = new SyncOutbox(host);
+    const task: any = { id: "local-1", didaId: "remote-1", projectId: "p1", title: "Task" };
+    await outbox.enqueue(task, "upsert", { title: "Task" });
+    const operation = outbox.list()[0];
+    assert.equal(operation.state, "pending");
+    assert.ok(operation.fingerprint);
+    await outbox.markStarted(operation);
+    assert.equal(operation.state, "uncertain");
+    await outbox.markFailed(operation, new Error("network"));
+    assert.equal(operation.state, "uncertain");
+    assert.equal(operation.attempts, 1);
+    assert.ok(operation.nextRetryAt);
 }
 
 async function testRemoteReconciler() {
@@ -92,6 +142,8 @@ async function testRemoteReconciler() {
 async function run() {
     await testRunCoordinator();
     await testConflictPolicy();
+    await testUnifiedEngineScopeIsolation();
+    await testPersistentOutboxState();
     await testRemoteReconciler();
     console.log("sync core module tests passed");
 }

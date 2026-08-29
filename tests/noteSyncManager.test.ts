@@ -8,10 +8,12 @@ class MockTFile {
     path: string;
     basename: string;
     extension: string;
+    stat: { mtime: number };
     constructor(path = "DidaNotes/Test.md") {
         this.path = path;
         this.basename = path.replace(/\.md$/, "").split("/").pop() || path;
         this.extension = "md";
+        this.stat = { mtime: Date.now() };
     }
 }
 
@@ -45,7 +47,10 @@ function makeApp() {
             },
             read: async (file: any) => vaultData.get(file.path) || "",
             cachedRead: async (file: any) => vaultData.get(file.path) || "",
-            modify: async (file: any, content: string) => vaultData.set(file.path, content)
+            modify: async (file: any, content: string) => {
+                file.stat.mtime = Math.max(Date.now(), file.stat.mtime + 1000);
+                vaultData.set(file.path, content);
+            }
         },
         metadataCache: {
             getFileCache: () => null
@@ -58,6 +63,7 @@ function makeApp() {
 function makePlugin(app: any) {
     let remoteBody = "remote body";
     let remoteEtag = "e1";
+    let remoteModifiedTime = new Date(Date.now() - 60_000).toISOString();
     let remoteItems: any[] | null = null;
     const updates: any[] = [];
     const filters: any[] = [];
@@ -88,14 +94,15 @@ function makePlugin(app: any) {
                     projectName: "Notes Project",
                     status: 0,
                     etag: remoteEtag,
-                    modifiedTime: remoteEtag
+                    modifiedTime: remoteModifiedTime
                 }];
             },
             updateNote: async (_id: string, payload: any) => {
                 updates.push(payload);
                 remoteBody = payload.content;
                 remoteEtag = "e2";
-                return { etag: remoteEtag, modifiedTime: "e2" };
+                remoteModifiedTime = new Date(Date.now()).toISOString();
+                return { etag: remoteEtag, modifiedTime: remoteModifiedTime };
             }
         },
         normalizeRemoteTask(task: any) {
@@ -134,7 +141,12 @@ function makePlugin(app: any) {
         plugin,
         updates,
         filters,
-        setRemote(body: string, etag: string) { remoteBody = body; remoteEtag = etag; remoteItems = null; },
+        setRemote(body: string, etag: string) {
+            remoteBody = body;
+            remoteEtag = etag;
+            remoteModifiedTime = new Date(Date.now() + 120_000).toISOString();
+            remoteItems = null;
+        },
         setRemoteItems(items: any[]) { remoteItems = items; }
     };
 }
@@ -204,6 +216,14 @@ async function run() {
     assert.deepEqual(plugin.settings.tasks.map((task: any) => task.id), ["task-kept"], "legacy note cache should be removed without touching normal tasks");
 
     const file = app.vault.getAbstractFileByPath(record.path);
+    abstractFiles.delete(record.path);
+    await manager.syncNow({ silent: true });
+    assert.equal(abstractFiles.has(record.path), false, "automatic sync must not recreate a locally deleted note before confirmation");
+    assert.equal(plugin.settings.syncDeletionCandidates[0].id, "note:note-1");
+    abstractFiles.set(record.path, file);
+    await manager.syncNow({ silent: true });
+    assert.equal(plugin.settings.syncDeletionCandidates.length, 0, "restoring the local note should clear the deletion candidate");
+
     const localChanged = (vaultData.get(record.path) || "").replace("remote body", "local body");
     await app.vault.modify(file, localChanged);
     await manager.syncNow();
@@ -217,11 +237,12 @@ async function run() {
     setRemote("remote body again", "e3");
     await manager.syncNow();
     const conflicted = vaultData.get(record.path) || "";
-    assert.match(conflicted, /滴答笔记同步冲突/);
-    assert.equal(plugin.settings.didaNoteSyncRecords[0].status, "conflict");
-    assert.equal(plugin.settings.didaNoteSyncLastRun.conflicts, 1);
+    assert.doesNotMatch(conflicted, /滴答笔记同步冲突/);
+    assert.match(conflicted, /remote body again/);
+    assert.equal(plugin.settings.didaNoteSyncRecords[0].status, "synced");
+    assert.equal(plugin.settings.didaNoteSyncLastRun.conflicts, 0);
 
-    await app.vault.modify(file, conflicted.replace(/^> \[!warning\].*\n> .*\n\n/m, "").replace("local body again", "merged body"));
+    await app.vault.modify(file, conflicted.replace("remote body again", "merged body"));
     await manager.syncNow();
     assert.equal(plugin.settings.didaNoteSyncRecords[0].status, "synced");
     assert.equal(updates.at(-1).content, "merged body");
@@ -343,6 +364,21 @@ async function run() {
     assert.equal(inboxRuntime.plugin.settings.didaNoteSyncRecords[0].projectId, "inbox");
     assert.equal(inboxRuntime.plugin.settings.didaNoteSyncRecords[0].projectName, "收集箱");
     assert.equal(inboxRuntime.plugin.settings.tasks.length, 0);
+
+    const trackerEnv = makeApp();
+    const trackerRuntime = makePlugin(trackerEnv.app);
+    const { LocalDeletionTracker } = require("../src/sync/LocalDeletionTracker");
+    const tracker = new LocalDeletionTracker(trackerEnv.app as any, trackerRuntime.plugin as any);
+    trackerRuntime.plugin.settings.tasks = [{ id: "local-task", didaId: "remote-task", title: "Linked Task", projectId: "p1", status: 0 }];
+    const linkedFile = await trackerEnv.app.vault.create("Tasks.md", "- [ ] Linked Task [🔗Dida](obsidian://dida-task?didaId=remote-task)\n");
+    await tracker.scan();
+    assert.equal(trackerRuntime.plugin.settings.nativeTaskLinkIndex["remote-task"].path, "Tasks.md");
+    await trackerEnv.app.vault.modify(linkedFile, "- [ ] another task\n");
+    await tracker.scan();
+    assert.equal(tracker.list()[0].reason, "local_task_line_missing");
+    await tracker.detach(tracker.list()[0]);
+    assert.equal(tracker.list().length, 0);
+    assert.equal(trackerRuntime.plugin.settings.detachedSyncEntities.includes("task:remote-task"), true);
 
     console.log("NoteSyncManager tests passed");
 }

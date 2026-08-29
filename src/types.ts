@@ -178,6 +178,61 @@ export interface PendingSyncOperation {
     modifiedAt?: string;
     attempts: number;
     lastError?: string;
+    requestStartedAt?: string;
+    state?: "pending" | "uncertain" | "permanent_failure";
+    nextRetryAt?: string;
+    fingerprint?: string;
+}
+
+export type SyncRunSource = "manual" | "auto" | "recovery";
+export type SyncRunScope = "all" | "tasks" | "notes";
+export type SyncEntityKind = "task" | "note" | "projection" | "deletion";
+
+export interface SyncRunRequest {
+    source: SyncRunSource;
+    scope: SyncRunScope;
+    silent?: boolean;
+}
+
+export interface SyncScopeResult {
+    key: string;
+    entityKind: SyncEntityKind;
+    outcome: "success" | "partial" | "failed" | "skipped";
+    pulled: number;
+    pushed: number;
+    failures: SyncFailureDetail[];
+}
+
+export interface SyncDeletionCandidate {
+    id: string;
+    entityKind: "task" | "note";
+    remoteId: string;
+    localId?: string;
+    path?: string;
+    projectId?: string;
+    title: string;
+    reason: "local_file_missing" | "local_task_line_missing";
+    detectedAt: string;
+    promptedAt?: string;
+}
+
+export interface SyncProjectionOperation {
+    id: string;
+    entityKind: "task" | "note";
+    remoteId: string;
+    path?: string;
+    operation: "update" | "detach";
+    payload?: Record<string, unknown>;
+    createdAt: string;
+    attempts: number;
+    lastError?: string;
+}
+
+export interface NativeTaskLinkRecord {
+    remoteId: string;
+    path: string;
+    title: string;
+    lastSeenAt: string;
 }
 
 export interface SyncResult {
@@ -188,9 +243,11 @@ export interface SyncResult {
     failedOperations: string[];
     failedDetails?: SyncFailureDetail[];
     cleanupPerformed: boolean;
+    scopeResults?: SyncScopeResult[];
+    noteSummary?: DidaNoteSyncSummary;
 }
 
-export type SyncPhase = "idle" | "queued" | "uploading" | "downloading" | "reconciling" | "completed" | "failed";
+export type SyncPhase = "idle" | "queued" | "scanning" | "fetching" | "planning" | "uploading" | "downloading" | "reconciling" | "projecting" | "verifying" | "completed" | "failed";
 
 export interface SyncRunState {
     phase: SyncPhase;
@@ -328,6 +385,10 @@ export interface DidaSyncSettings {
     completedTasksQuery: CompletedTasksQuery;
     completedTaskCacheSegments: CompletedTaskCacheSegment[];
     pendingSyncOperations: PendingSyncOperation[];
+    pendingSyncProjections: SyncProjectionOperation[];
+    syncDeletionCandidates: SyncDeletionCandidate[];
+    detachedSyncEntities: string[];
+    nativeTaskLinkIndex: Record<string, NativeTaskLinkRecord>;
 }
 
 export const DEFAULT_SETTINGS: DidaSyncSettings = {
@@ -401,5 +462,9 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     completedTasksLastFetchedAt: "",
     completedTasksQuery: {},
     completedTaskCacheSegments: [],
-    pendingSyncOperations: []
+    pendingSyncOperations: [],
+    pendingSyncProjections: [],
+    syncDeletionCandidates: [],
+    detachedSyncEntities: [],
+    nativeTaskLinkIndex: {}
 };

@@ -1,10 +1,13 @@
 import { PendingSyncOperation } from "../types";
+import { resolveWholeEntityConflict, WholeEntityConflictDecision } from "./WholeEntityConflictPolicy";
+
+export function resolvePendingTaskConflict(operation: PendingSyncOperation, remote: any): WholeEntityConflictDecision {
+    return resolveWholeEntityConflict({
+        localModifiedAt: operation.modifiedAt || operation.createdAt,
+        remoteModifiedAt: remote?.modifiedTime || remote?.updatedTime || remote?.updateTime
+    });
+}
 
 export function shouldPreferPendingLocalChange(operation: PendingSyncOperation, remote: any): boolean {
-    const remoteModified = remote?.modifiedTime || remote?.updatedTime || remote?.updateTime;
-    if (!remoteModified) return true;
-    const remoteTime = Date.parse(remoteModified);
-    const localTime = Date.parse(operation.modifiedAt || operation.createdAt);
-    if (!Number.isFinite(remoteTime) || !Number.isFinite(localTime)) return true;
-    return localTime >= remoteTime;
+    return resolvePendingTaskConflict(operation, remote) === "local";
 }

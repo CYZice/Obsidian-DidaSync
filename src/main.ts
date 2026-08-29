@@ -7,6 +7,8 @@ import { NativeTaskSyncManager } from './managers/NativeTaskSyncManager';
 import { NoteSyncManager } from './managers/NoteSyncManager';
 import { RepeatTaskManager } from './managers/RepeatTaskManager';
 import { SyncManager } from './managers/SyncManager';
+import { UnifiedSyncEngine } from './sync/UnifiedSyncEngine';
+import { LocalDeletionTracker } from './sync/LocalDeletionTracker';
 import { DIDA_SKILL_DOC } from './skills/dida-skill-doc';
 import { AddTaskModal } from './modals/AddTaskModal';
 import { CompletedTasksModal } from './modals/CompletedTasksModal';
@@ -18,6 +20,7 @@ import { TaskNoteSyncModal } from './modals/TaskNoteSyncModal';
 import { TaskSuggestionPopup } from './modals/TaskSuggestionPopup';
 import { TimelineViewModal } from './modals/TimelineViewModal';
 import { SyncFailureModal } from './modals/SyncFailureModal';
+import { SyncDeletionReviewModal } from './modals/SyncDeletionReviewModal';
 import { DidaSyncSettingTab } from './settings/DidaSyncSettingTab';
 import { buildCompletedTaskCacheSegment, fetchCompletedTasksByRange, filterCompletedTasksByQuery, getMonthlyCompletedTaskRanges, isCompletedTaskRangeCovered, mergeCompletedTaskCacheSegments, mergeCompletedTasks, normalizeCompletedTaskCacheSegments } from './completedTaskCache';
 import { CompletedTaskCacheSegment, CompletedTasksQuery, DEFAULT_SETTINGS, DidaNoteSyncRunSource, DidaProject, DidaSyncSettings, DidaTask, ProjectCatalogEntry, SyncResult, TaskScheduleInput } from './types';
@@ -66,6 +69,8 @@ export default class DidaSyncPlugin extends Plugin {
     settings: DidaSyncSettings;
     apiClient: DidaApiClient;
     syncManager: SyncManager;
+    unifiedSyncEngine: UnifiedSyncEngine;
+    localDeletionTracker: LocalDeletionTracker;
     mcpServerManager: any | null = null;
     nativeTaskSyncManager: NativeTaskSyncManager;
     noteSyncManager: NoteSyncManager;
@@ -95,6 +100,7 @@ export default class DidaSyncPlugin extends Plugin {
     _projectCreationPromises: Map<string, Promise<any>> | null = null;
     dateChangeDebounceTimer: number | null = null;
     isReverseUpdating: boolean = false;
+    _deletionReviewOpen: boolean = false;
 
     async onload() {
         await this.loadSettings();
@@ -108,6 +114,20 @@ export default class DidaSyncPlugin extends Plugin {
         }
         this.nativeTaskSyncManager = new NativeTaskSyncManager(this);
         this.noteSyncManager = new NoteSyncManager(this.app, this);
+        this.localDeletionTracker = new LocalDeletionTracker(this.app, this);
+        this.unifiedSyncEngine = new UnifiedSyncEngine({
+            taskScope: this.syncManager,
+            noteScope: this.noteSyncManager,
+            shouldRunNotes: () => this.settings.enableDidaNoteSync
+                && (this.settings.didaNoteSyncProjectIds || []).filter(Boolean).length > 0,
+            scanLocalDeletions: () => this.localDeletionTracker.scan(),
+            onStateChange: () => {
+                this.syncManager.isSyncing = this.unifiedSyncEngine.isRunning;
+                this.refreshTaskView();
+            },
+            onTimeout: () => this.updateStatusBar("同步超时")
+        });
+        this.syncManager.attachUnifiedSyncEngine(this.unifiedSyncEngine);
         this.repeatTaskManager = new RepeatTaskManager(this);
         this.taskNoteSyncManager = new TaskNoteSyncManager(this.app, this);
         this.registerEditorExtension(createNativeTaskActionExtension(lineNumber => {
@@ -253,6 +273,10 @@ export default class DidaSyncPlugin extends Plugin {
         if (!Array.isArray(this.settings.didaNoteSyncProjectIds)) this.settings.didaNoteSyncProjectIds = [];
         if (!Array.isArray(this.settings.completedTasks)) this.settings.completedTasks = [];
         if (!Array.isArray(this.settings.pendingSyncOperations)) this.settings.pendingSyncOperations = [];
+        if (!Array.isArray(this.settings.pendingSyncProjections)) this.settings.pendingSyncProjections = [];
+        if (!Array.isArray(this.settings.syncDeletionCandidates)) this.settings.syncDeletionCandidates = [];
+        if (!Array.isArray(this.settings.detachedSyncEntities)) this.settings.detachedSyncEntities = [];
+        if (!this.settings.nativeTaskLinkIndex || typeof this.settings.nativeTaskLinkIndex !== "object") this.settings.nativeTaskLinkIndex = {};
         this.settings.pendingSyncOperations = this.settings.pendingSyncOperations.filter((operation) => {
             if (!operation) return false;
             return true;
@@ -2101,9 +2125,13 @@ export default class DidaSyncPlugin extends Plugin {
     }
 
     async runIntegratedSync(options: { silentNotes?: boolean; noteSyncSource?: DidaNoteSyncRunSource } = {}): Promise<SyncResult> {
-        let taskResult: SyncResult;
-        try {
-            taskResult = await this.syncManager.runBidirectionalSync() || {
+        const result = this.unifiedSyncEngine
+            ? await this.unifiedSyncEngine.run({
+                source: options.noteSyncSource || "manual",
+                scope: "all",
+                silent: options.silentNotes === true
+            })
+            : await this.syncManager.runBidirectionalSync() || {
                 outcome: "success",
                 uploaded: 0,
                 downloaded: 0,
@@ -2111,36 +2139,39 @@ export default class DidaSyncPlugin extends Plugin {
                 failedOperations: [],
                 cleanupPerformed: false
             };
-        } catch (error: any) {
-            taskResult = {
-                outcome: "failed",
-                uploaded: 0,
-                downloaded: 0,
-                failedScopes: [error?.message || String(error)],
-                failedOperations: [],
-                cleanupPerformed: false
-            };
+        this.lastSyncResult = result;
+        if (options.silentNotes !== true && this.localDeletionTracker) this.openPendingDeletionReview();
+        if (options.silentNotes !== true && result.outcome !== "success" && (result.failedDetails?.length || result.failedScopes?.length)) {
+            this.showSyncFailureDetails(result);
         }
+        return result;
+    }
 
-        const shouldSyncNotes = this.settings.enableDidaNoteSync
-            && (this.settings.didaNoteSyncProjectIds || []).filter(Boolean).length > 0;
-        if (shouldSyncNotes) {
-            try {
-                await this.noteSyncManager.syncNow({
-                    silent: options.silentNotes === true,
-                    suppressNoopNotice: options.silentNotes !== true,
-                    source: options.noteSyncSource || "manual"
-                });
-            } catch (error: any) {
-                if (!options.silentNotes) new Notice(error?.message || "滴答笔记同步失败");
-            }
-        }
+    openPendingDeletionReview() {
+        if (this._deletionReviewOpen) return;
+        const candidate = this.localDeletionTracker.list()[0];
+        if (!candidate) return;
+        this._deletionReviewOpen = true;
+        new SyncDeletionReviewModal(
+            this.app,
+            candidate,
+            action => this.resolveSyncDeletionCandidate(candidate.id, action),
+            () => { this._deletionReviewOpen = false; }
+        ).open();
+    }
 
-        this.lastSyncResult = taskResult;
-        if (options.silentNotes !== true && taskResult.outcome !== "success" && (taskResult.failedDetails?.length || taskResult.failedScopes?.length)) {
-            this.showSyncFailureDetails(taskResult);
+    async resolveSyncDeletionCandidate(candidateId: string, action: "delete_remote" | "detach") {
+        const candidate = this.localDeletionTracker.list().find(item => item.id === candidateId);
+        if (!candidate) return;
+        if (action === "detach") {
+            await this.localDeletionTracker.detach(candidate);
+            this.refreshTaskView();
+            return;
         }
-        return taskResult;
+        await this.syncManager.deleteTaskInDidaList(candidate.remoteId, candidate.projectId || "inbox", false);
+        if (candidate.entityKind === "note") await this.noteSyncManager.deleteLocalRecord(candidate.remoteId);
+        await this.localDeletionTracker.complete(candidate.id);
+        this.refreshTaskView();
     }
 
     showSyncFailureDetails(result: SyncResult) {
