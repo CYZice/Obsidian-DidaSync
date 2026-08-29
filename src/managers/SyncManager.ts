@@ -1,15 +1,18 @@
 import { Notice } from "obsidian";
+import { fetchCompletedTasksByRange } from "../completedTaskCache";
 import DidaSyncPlugin from "../main";
 import { formatTaskLine } from "../taskLineFormat";
-import { DidaTask, PendingPlacementOperationPayload, PendingSyncOperation, PendingSyncOperationType, SyncResult } from "../types";
+import { applyTaskScheduleToPayload, mergeRemoteTaskSchedule } from "../taskScheduleSync";
+import { DidaTask, PendingPlacementOperationPayload, PendingSyncOperation, PendingSyncOperationType, SyncFailureDetail, SyncResult, SyncRunState } from "../types";
 import { ensureTaskCompletedTime, normalizeRemoteCompletedTime } from "../utils";
 import { TASK_VIEW_TYPE, TaskView } from "../views/TaskView";
 
 // Reverse completion verification constants
-const REVERSE_COMPLETION_MISSING_THRESHOLD = 3;
+const REVERSE_COMPLETION_MISSING_THRESHOLD = 1;
 const REVERSE_COMPLETION_MAX_VERIFY_PER_SYNC = 20;
 const REVERSE_COMPLETION_FOLLOWUP_DELAY_MS = 2000;
 const REVERSE_COMPLETION_MAX_FOLLOWUP_PASSES = 6;
+const SYNC_RUN_TIMEOUT_MS = 90000;
 
 export class SyncManager {
     plugin: DidaSyncPlugin;
@@ -18,9 +21,69 @@ export class SyncManager {
     _reverseCompletionFollowUpTimer: number | null = null;
     _syncConsistencyFollowUpInProgress: boolean = false;
     _syncConsistencyFollowUpTimer: number | null = null;
+    private _activeSyncPromise: Promise<SyncResult> | null = null;
+    private _rerunRequested: boolean = false;
+    private _disposed: boolean = false;
+    private _syncState: SyncRunState = {
+        phase: "idle",
+        isRunning: false,
+        queued: false,
+        startedAt: null,
+        finishedAt: null,
+        message: "未同步"
+    };
 
     constructor(plugin: DidaSyncPlugin) {
         this.plugin = plugin;
+    }
+
+    getSyncState(): SyncRunState {
+        return { ...this._syncState };
+    }
+
+    private setSyncState(patch: Partial<SyncRunState>) {
+        this._syncState = { ...this._syncState, ...patch };
+        if (typeof this.plugin.refreshTaskView === "function") this.plugin.refreshTaskView();
+    }
+
+    private emptySyncResult(outcome: SyncResult["outcome"] = "success"): SyncResult {
+        return { outcome, uploaded: 0, downloaded: 0, failedScopes: [], failedOperations: [], cleanupPerformed: false };
+    }
+
+    private mergeSyncResults(current: SyncResult, next: SyncResult): SyncResult {
+        const failedScopes = [...current.failedScopes, ...next.failedScopes];
+        const failedOperations = [...current.failedOperations, ...next.failedOperations];
+        const failedDetails = [...(current.failedDetails || []), ...(next.failedDetails || [])];
+        const outcome = current.outcome === "failed" || next.outcome === "failed"
+            ? "failed"
+            : current.outcome === "partial" || next.outcome === "partial" || failedScopes.length > 0 || failedOperations.length > 0
+                ? "partial"
+                : next.outcome === "skipped" && current.outcome === "skipped"
+                    ? "skipped"
+                    : "success";
+        return {
+            outcome,
+            uploaded: current.uploaded + next.uploaded,
+            downloaded: current.downloaded + next.downloaded,
+            failedScopes,
+            failedOperations,
+            failedDetails,
+            cleanupPerformed: current.cleanupPerformed || next.cleanupPerformed
+        };
+    }
+
+    private async withRunTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        try {
+            return await Promise.race([
+                work,
+                new Promise<never>((_resolve, reject) => {
+                    timer = setTimeout(() => reject(new Error(`同步运行超时（${Math.round(timeoutMs / 1000)} 秒）`)), timeoutMs);
+                })
+            ]);
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
     }
 
     getPendingOperations(): PendingSyncOperation[] {
@@ -36,6 +99,21 @@ export class SyncManager {
         );
     }
 
+    private getPendingOperation(task: DidaTask): PendingSyncOperation | undefined {
+        return this.getPendingOperations().find(operation =>
+            operation.localTaskId === task.id || (!!task.didaId && operation.didaId === task.didaId)
+        );
+    }
+
+    private shouldPreferPendingLocalChange(operation: PendingSyncOperation, remote: any): boolean {
+        const remoteModified = remote?.modifiedTime || remote?.updatedTime || remote?.updateTime;
+        if (!remoteModified) return true;
+        const remoteTime = Date.parse(remoteModified);
+        const localTime = Date.parse(operation.modifiedAt || operation.createdAt);
+        if (!Number.isFinite(remoteTime) || !Number.isFinite(localTime)) return true;
+        return localTime >= remoteTime;
+    }
+
     hasPendingDelete(didaId: string): boolean {
         return this.getPendingOperations().some(operation => operation.didaId === didaId && operation.type === "delete");
     }
@@ -43,6 +121,15 @@ export class SyncManager {
     private isInboxProjectId(projectId: string | null | undefined): boolean {
         if (!projectId) return true;
         return projectId === "inbox" || projectId.startsWith("inbox");
+    }
+
+    private getUserTimeZone(): string {
+        if (typeof this.plugin.getUserTimeZone === "function") return this.plugin.getUserTimeZone();
+        try {
+            return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+        } catch (_error) {
+            return "UTC";
+        }
     }
 
     private cacheRemoteInboxProjectId(projectId: string | null | undefined): boolean {
@@ -239,6 +326,7 @@ export class SyncManager {
             type,
             payload: type === "delete" ? undefined : (payload || { ...task }),
             createdAt: existing?.createdAt || new Date().toISOString(),
+            modifiedAt: new Date().toISOString(),
             attempts: existing?.attempts || 0
         };
         this.plugin.settings.pendingSyncOperations = operations.filter(operation => operation.localTaskId !== task.id);
@@ -269,9 +357,10 @@ export class SyncManager {
         }
     }
 
-    async flushPendingOperations(): Promise<{ uploaded: number; failed: string[] }> {
+    async flushPendingOperations(): Promise<{ uploaded: number; failed: string[]; failures: SyncFailureDetail[] }> {
         let uploaded = 0;
         const failed: string[] = [];
+        const failures: SyncFailureDetail[] = [];
         for (const operation of this.sortPendingOperationsForFlush([...this.getPendingOperations()])) {
             if (!this.getPendingOperations().some(item => item === operation)) continue;
             const task = this.plugin.settings.tasks.find(item =>
@@ -308,11 +397,23 @@ export class SyncManager {
             } catch (error: any) {
                 operation.attempts += 1;
                 operation.lastError = error?.message || String(error);
-                failed.push(operation.lastError || "未知上传错误");
+                const reason = operation.lastError || "未知上传错误";
+                failed.push(reason);
+                failures.push({
+                    localTaskId: operation.localTaskId,
+                    didaId: operation.didaId || task?.didaId,
+                    title: task?.title || (typeof operation.payload === "object" && operation.payload && "title" in operation.payload
+                        ? String((operation.payload as any).title || "")
+                        : ""),
+                    projectName: task?.projectName,
+                    operation: operation.type || "upsert",
+                    reason,
+                    attempts: operation.attempts
+                });
                 await this.plugin.saveSettings();
             }
         }
-        return { uploaded, failed };
+        return { uploaded, failed, failures };
     }
 
     private getPlacementPayload(operation: PendingSyncOperation): PendingPlacementOperationPayload {
@@ -457,6 +558,7 @@ export class SyncManager {
                 const flushed = await this.flushPendingOperations();
                 result.uploaded = flushed.uploaded;
                 result.failedOperations = flushed.failed;
+                result.failedDetails = flushed.failures;
                 result.outcome = flushed.failed.length > 0 ? (flushed.uploaded > 0 ? "partial" : "failed") : "success";
                 this.plugin.updateStatusBar(result.outcome === "success" ? "已连接" : result.outcome === "partial" ? "部分同步失败" : "同步失败");
             } catch (e) {
@@ -481,19 +583,72 @@ export class SyncManager {
         const flushed = await this.flushPendingOperations();
         result.uploaded = flushed.uploaded;
         result.failedOperations = flushed.failed;
+        result.failedDetails = flushed.failures;
         if (flushed.failed.length > 0) result.outcome = flushed.uploaded > 0 ? "partial" : "failed";
         return result;
     }
 
     async runBidirectionalSync(): Promise<SyncResult> {
-        const skipped: SyncResult = { outcome: "skipped", uploaded: 0, downloaded: 0, failedScopes: [], failedOperations: [], cleanupPerformed: false };
-        if (!this.plugin.settings.accessToken || this.plugin.isReverseUpdating || this.isSyncing) return skipped;
+        const skipped = this.emptySyncResult("skipped");
+        if (!this.plugin.settings.accessToken || this.plugin.isReverseUpdating || this._disposed) return skipped;
+        if (this._activeSyncPromise) {
+            this._rerunRequested = true;
+            this.setSyncState({ phase: "queued", queued: true, message: "当前同步结束后再次同步" });
+            this.plugin.updateStatusBar("已排队再次同步");
+            return this._activeSyncPromise;
+        }
+
         this.isSyncing = true;
-        this.plugin.updateStatusBar("双向同步中...");
+        this.setSyncState({
+            phase: "uploading",
+            isRunning: true,
+            queued: false,
+            startedAt: new Date().toISOString(),
+            finishedAt: null,
+            message: "正在上传本地修改"
+        });
+
+        const runPromise = this.runSyncLoop().finally(() => {
+            this.isSyncing = false;
+            this._activeSyncPromise = null;
+            this.setSyncState({
+                isRunning: false,
+                queued: false,
+                finishedAt: new Date().toISOString()
+            });
+        });
+        this._activeSyncPromise = runPromise;
+        return runPromise;
+    }
+
+    private async runSyncLoop(): Promise<SyncResult> {
+        let aggregate = this.emptySyncResult("skipped");
+        do {
+            this._rerunRequested = false;
+            let result: SyncResult;
+            try {
+                result = await this.withRunTimeout(this.runSingleBidirectionalSync(), SYNC_RUN_TIMEOUT_MS);
+            } catch (error: any) {
+                const message = error?.message || String(error);
+                result = { ...this.emptySyncResult("failed"), failedOperations: [message] };
+                this.plugin.updateStatusBar("同步超时");
+            }
+            aggregate = aggregate.outcome === "skipped" ? result : this.mergeSyncResults(aggregate, result);
+        } while (this._rerunRequested && !this._disposed);
+        return aggregate;
+    }
+
+    private async runSingleBidirectionalSync(): Promise<SyncResult> {
+        const failed = this.emptySyncResult("failed");
+        this.setSyncState({ phase: "uploading", queued: false, message: "正在上传本地修改" });
+        this.plugin.updateStatusBar("上传本地修改...");
         try {
             const upload = await this.syncNewTasksToDidaList();
+            this.setSyncState({ phase: "downloading", message: "正在拉取远端任务" });
+            this.plugin.updateStatusBar("拉取远端任务...");
             const download = await this.syncFromDidaList(true);
             const failedOperations = [...upload.failedOperations, ...download.failedOperations];
+            const failedDetails = [...(upload.failedDetails || []), ...(download.failedDetails || [])];
             const failedScopes = [...download.failedScopes];
             const outcome = download.outcome === "failed"
                 ? "failed"
@@ -506,15 +661,20 @@ export class SyncManager {
                 downloaded: download.downloaded,
                 failedScopes,
                 failedOperations,
+                failedDetails,
                 cleanupPerformed: download.cleanupPerformed
             };
+            this.setSyncState({
+                phase: outcome === "failed" ? "failed" : "completed",
+                message: outcome === "success" ? "同步完成" : outcome === "partial" ? "部分同步失败" : "同步失败"
+            });
             this.plugin.updateStatusBar(outcome === "success" ? "已连接" : outcome === "partial" ? "部分同步失败" : "同步失败");
             return result;
         } catch (error: any) {
+            const message = error?.message || String(error);
+            this.setSyncState({ phase: "failed", message });
             this.plugin.updateStatusBar("同步失败");
-            return { ...skipped, outcome: "failed", failedOperations: [error?.message || String(error)] };
-        } finally {
-            this.isSyncing = false;
+            return { ...failed, failedOperations: [message] };
         }
     }
 
@@ -574,6 +734,7 @@ export class SyncManager {
                         }
                         for (const project of list) {
                             let projectFetched = false;
+                            let projectError = "未能获取任务数据";
                             for (const url of [
                                 this.plugin.apiClient.buildApiUrl(`/project/${project.id}/task`),
                                 this.plugin.apiClient.buildApiUrl(`/project/${project.id}/data`),
@@ -612,10 +773,15 @@ export class SyncManager {
                                             tasks.push(...items);
                                             break;
                                         }
+                                        projectError = `响应格式无效（HTTP ${res.status}）`;
+                                    } else {
+                                        projectError = `HTTP ${res.status}`;
                                     }
-                                } catch (e) { }
+                                } catch (e: any) {
+                                    projectError = e?.message || String(e);
+                                }
                             }
-                            if (!projectFetched) result.failedScopes.push(`project:${project.id}`);
+                            if (!projectFetched) result.failedScopes.push(`project:${project.id}：${projectError}`);
                         }
                     }
                 }
@@ -624,6 +790,7 @@ export class SyncManager {
 
             try {
                 const remoteInboxProjectId = await this.ensureRemoteInboxProjectId().catch(() => "inbox");
+                let inboxError = "未能获取收集箱任务";
                 for (const url of [
                     this.plugin.apiClient.buildApiUrl(`/project/${remoteInboxProjectId}/task`),
                     this.plugin.apiClient.buildApiUrl(`/project/${remoteInboxProjectId}/data`),
@@ -663,11 +830,16 @@ export class SyncManager {
                                 tasks.push(...extra);
                                 break;
                             }
+                            inboxError = `响应格式无效（HTTP ${res.status}）`;
+                        } else {
+                            inboxError = `HTTP ${res.status}`;
                         }
-                    } catch (e) { }
+                    } catch (e: any) {
+                        inboxError = e?.message || String(e);
+                    }
                 }
+                if (!inboxSucceeded) result.failedScopes.push(`inbox：${inboxError}`);
             } catch (e) { }
-            if (!inboxSucceeded) result.failedScopes.push("inbox");
 
             const hasAnySuccessfulScope = inboxSucceeded || successfulProjects.size > 0;
             if (!hasAnySuccessfulScope) {
@@ -690,7 +862,11 @@ export class SyncManager {
                     } else {
                         const local = this.plugin.settings.tasks[idx];
                         const remoteKind = typeof remote.kind === "string" ? remote.kind.trim().toUpperCase() : "";
-                        if (this.hasPendingOperation(local) && remoteKind !== "NOTE") continue;
+                        const pendingOperation = this.getPendingOperation(local);
+                        if (pendingOperation && remoteKind !== "NOTE") {
+                            if (this.shouldPreferPendingLocalChange(pendingOperation, remote)) continue;
+                            await this.removeOperation(pendingOperation);
+                        }
                         let changed = false;
                         if (remote.title && remote.title !== local.title) {
                             const oldTitle = local.title;
@@ -729,26 +905,35 @@ export class SyncManager {
                                 changed = true;
                             }
                         }
-                        if (remote.dueDate !== undefined && remote.dueDate !== local.dueDate) {
+                        const mergedSchedule = mergeRemoteTaskSchedule(local, remote);
+                        if (mergedSchedule.dueDate !== local.dueDate) {
                             const oldDue = local.dueDate;
-                            local.dueDate = remote.dueDate;
+                            local.dueDate = mergedSchedule.dueDate;
                             changed = true;
                             if (local.didaId) {
                                 setTimeout(() => {
                                     this.plugin.app.workspace.getLeavesOfType(TASK_VIEW_TYPE).forEach(leaf => {
                                         if (leaf.view instanceof TaskView && (leaf.view as any).updateNativeTaskDueDate) {
-                                            (leaf.view as any).updateNativeTaskDueDate(local, oldDue, remote.dueDate);
+                                            (leaf.view as any).updateNativeTaskDueDate(local, oldDue, mergedSchedule.dueDate);
                                         }
                                     });
                                 }, 100);
                             }
                         }
-                        if (remote.startDate !== undefined && remote.startDate !== local.startDate) {
-                            local.startDate = remote.startDate;
+                        if (mergedSchedule.startDate !== local.startDate) {
+                            local.startDate = mergedSchedule.startDate;
+                            changed = true;
+                        }
+                        if (remote.timeZone !== undefined && remote.timeZone !== local.timeZone) {
+                            local.timeZone = remote.timeZone;
                             changed = true;
                         }
                         if (remote.etag !== undefined && remote.etag !== local.etag) {
                             local.etag = remote.etag;
+                            changed = true;
+                        }
+                        if (remote.modifiedTime !== undefined && remote.modifiedTime !== local.modifiedTime) {
+                            local.modifiedTime = remote.modifiedTime;
                             changed = true;
                         }
                         if (remote.isAllDay !== undefined && remote.isAllDay !== local.isAllDay) {
@@ -850,11 +1035,21 @@ export class SyncManager {
             const fullSnapshot = projectListSucceeded
                 && inboxSucceeded
                 && Array.from(expectedProjects).every(projectId => successfulProjects.has(projectId));
+            if (lockHeld) this.setSyncState({ phase: "reconciling", message: "正在核对完成与删除状态" });
             if (fullSnapshot) this._refreshReverseCompletionSeenMeta(tasks);
             const deletedCount = 0;
-            const extraCount = fullSnapshot ? await this.markExtraTasksAsCompleted(tasks) : 0;
-            const nativeCount = fullSnapshot ? await this.markCompletedNativeTasksWithLinks(tasks) : 0;
-            result.cleanupPerformed = fullSnapshot;
+            let extraCount = 0;
+            let missingTaskVerificationSucceeded = fullSnapshot;
+            if (fullSnapshot) {
+                try {
+                    extraCount = await this.markExtraTasksAsCompleted(tasks);
+                } catch (_error) {
+                    missingTaskVerificationSucceeded = false;
+                    result.failedScopes.push("completed-tasks");
+                }
+            }
+            const nativeCount = missingTaskVerificationSucceeded ? await this.markCompletedNativeTasksWithLinks(tasks) : 0;
+            result.cleanupPerformed = missingTaskVerificationSucceeded;
             if (updatedCount > 0 || clearedNotePendingCount > 0 || deletedCount > 0 || extraCount > 0 || nativeCount > 0) {
                 this.plugin.refreshTaskView();
             }
@@ -910,11 +1105,48 @@ export class SyncManager {
         const remoteIds = new Set(tasks.map(t => t.id));
         const extra = this.plugin.settings.tasks.filter(t => t.didaId && !this.hasPendingOperation(t) && !this.plugin.isNoteSyncTaskLike(t)).filter(t => !remoteIds.has(t.didaId as string) && t.status !== 2);
         if (extra.length === 0) return 0;
+        const now = new Date();
+        const candidateTimes = extra
+            .map(task => {
+                const meta = this._getReverseCompletionMeta(task.didaId as string);
+                return meta.lastSeenAt || task.updatedAt || task.createdAt || null;
+            })
+            .map(value => value ? new Date(value).getTime() : NaN)
+            .filter(value => Number.isFinite(value));
+        const fallbackStart = now.getTime() - 90 * 24 * 60 * 60 * 1000;
+        const earliestCandidateTime = candidateTimes.length > 0 ? Math.min(...candidateTimes) : fallbackStart;
+        const startDate = new Date(Math.min(now.getTime(), earliestCandidateTime) - 24 * 60 * 60 * 1000);
+        const completedResult = await fetchCompletedTasksByRange(
+            { startDate, endDate: now },
+            async query => {
+                const completedTasks = await this.plugin.apiClient.getCompletedTasks(query);
+                if (!Array.isArray(completedTasks)) throw new Error("已完成任务接口返回了无效数据");
+                return completedTasks;
+            }
+        );
+        if (completedResult.truncatedSegments.length > 0) {
+            throw new Error("已完成任务记录不完整，跳过缺失任务清理");
+        }
+        const completedById = new Map<string, any>();
+        for (const completedTask of completedResult.tasks) {
+            const id = String(completedTask?.id || completedTask?.didaId || "").trim();
+            if (id) completedById.set(id, completedTask);
+        }
         let count = 0;
         const verifyBudget = { value: REVERSE_COMPLETION_MAX_VERIFY_PER_SYNC };
         const decisionCache = new Map<string, boolean>();
         for (const task of extra) {
             try {
+                const completedTask = completedById.get(task.didaId as string);
+                if (completedTask) {
+                    task.remoteDeleted = false;
+                    task.status = 2;
+                    task.completedTime = normalizeRemoteCompletedTime(completedTask.completedTime);
+                    ensureTaskCompletedTime(task);
+                    task.updatedAt = now.toISOString();
+                    count++;
+                    continue;
+                }
                 if (!await this._decideReverseCompletion(task, { verifyBudget, decisionCache })) continue;
                 const idx = this.plugin.settings.tasks.findIndex(t => t.didaId === task.didaId);
                 if (idx !== -1) {
@@ -946,7 +1178,11 @@ export class SyncManager {
             for (const file of this.plugin.app.vault.getMarkdownFiles()) {
                 try {
                     const content = await this.plugin.app.vault.read(file);
-                    const nativeTasks = this.plugin.nativeTaskSyncManager.detectNativeTasks(content, file.path).filter(t => t.hasLink && t.didaId && !remoteIds.has(t.didaId) && !noteSyncDidaIds.has(t.didaId));
+                    const nativeTasks = this.plugin.nativeTaskSyncManager.detectNativeTasks(content, file.path).filter(t => {
+                        if (!t.hasLink || !t.didaId || remoteIds.has(t.didaId) || noteSyncDidaIds.has(t.didaId)) return false;
+                        const local = this.plugin.settings.tasks.find(task => task.didaId === t.didaId);
+                        return local?.remoteDeleted === true || local?.status === 2;
+                    });
                     if (nativeTasks.length > 0) {
                         const lines = content.split("\n");
                         let fileChanged = false;
@@ -1014,25 +1250,7 @@ export class SyncManager {
         if (task.projectId && !this.isInboxProjectId(task.projectId)) payload.projectId = await this.resolveRemoteProjectId(task.projectId);
         if (remoteParentId) payload.parentId = remoteParentId;
         if (task.items && Array.isArray(task.items)) payload.items = task.items;
-        if (task.dueDate !== undefined) {
-            if (task.dueDate === null) payload.dueDate = null;
-            else {
-                let date = task.dueDate;
-                if (date instanceof Date) date = date.toISOString() as any;
-                if (typeof date === "string" && date.endsWith("Z")) date = date.replace("Z", "+0000");
-                payload.dueDate = date;
-            }
-        }
-        if (task.startDate !== undefined) {
-            if (task.startDate === null) payload.startDate = null;
-            else {
-                let date = task.startDate;
-                if (date instanceof Date) date = date.toISOString() as any;
-                if (typeof date === "string" && date.endsWith("Z")) date = date.replace("Z", "+0000");
-                payload.startDate = date;
-            }
-        }
-        if (task.isAllDay !== undefined) payload.isAllDay = task.isAllDay;
+        applyTaskScheduleToPayload(payload, task, this.getUserTimeZone());
         if (task.priority !== undefined) payload.priority = task.priority;
         if (typeof task.repeatFlag === "string") {
             const rf = task.repeatFlag.trim();
@@ -1058,9 +1276,12 @@ export class SyncManager {
                 } else if (task.status === 2) {
                     ensureTaskCompletedTime(task);
                 }
-                task.dueDate = data.dueDate || null;
-                task.startDate = data.startDate || null;
+                const createdSchedule = mergeRemoteTaskSchedule(task, data);
+                task.dueDate = createdSchedule.dueDate || null;
+                task.startDate = createdSchedule.startDate || null;
                 task.isAllDay = data.isAllDay || false;
+                task.timeZone = data.timeZone || task.timeZone;
+                task.modifiedTime = data.modifiedTime || task.modifiedTime;
                 task.kind = data.kind || "TEXT";
                 task.projectViewMode = data.projectViewMode || "list";
                 task.projectKind = data.projectKind || "TASK";
@@ -1085,7 +1306,6 @@ export class SyncManager {
     async updateTaskInDidaList(task: DidaTask, trackPending: boolean = true, clearOnSuccess: boolean = true, includeParent: boolean = true) {
         if (task.didaId) {
             if (trackPending) await this.queueOperation(task, "upsert");
-            const hasTimeRange = !!(task.startDate && task.dueDate && task.startDate !== task.dueDate);
             let content = task.content || task.desc || "";
             const remoteParentId = await this.resolveRemoteParentId(task);
             const payload: any = {
@@ -1096,30 +1316,7 @@ export class SyncManager {
             };
             if (task.status !== 2) payload.status = task.status;
             if (task.projectId && !this.isInboxProjectId(task.projectId)) payload.projectId = await this.resolveRemoteProjectId(task.projectId);
-            if (task.dueDate !== undefined) {
-                if (task.dueDate === null) payload.dueDate = null;
-                else {
-                    let date = task.dueDate;
-                    if (date instanceof Date) date = date.toISOString() as any;
-                    if (typeof date === "string" && date.endsWith("Z")) date = date.replace("Z", "+0000");
-                    payload.dueDate = date;
-                }
-            }
-            if (task.startDate !== undefined) {
-                if (task.startDate === null) payload.startDate = null;
-                else {
-                    let date = task.startDate;
-                    if (date instanceof Date) date = date.toISOString() as any;
-                    if (typeof date === "string" && date.endsWith("Z")) date = date.replace("Z", "+0000");
-                    payload.startDate = date;
-                }
-            } else if (task.dueDate !== undefined) {
-                payload.startDate = payload.dueDate;
-            }
-            if (task.isAllDay !== undefined) {
-                payload.isAllDay = task.isAllDay;
-                if (task.isAllDay) payload.timeZone = this.plugin.getUserTimeZone();
-            }
+            applyTaskScheduleToPayload(payload, task, this.getUserTimeZone());
             if (task.priority !== undefined) payload.priority = task.priority;
             if (includeParent && remoteParentId !== undefined) payload.parentId = this.encodeParentIdForTaskUpdate(remoteParentId);
             if (task.items && Array.isArray(task.items)) payload.items = task.items;
@@ -1139,12 +1336,11 @@ export class SyncManager {
                     throw new Error("更新任务失败: " + res.status);
                 }
                 const data = await this.readResponseJson(res, {});
-                if (!hasTimeRange) {
-                    if (data.dueDate !== undefined) task.dueDate = data.dueDate;
-                    if (data.startDate !== undefined) task.startDate = data.startDate;
-                    if (task.dueDate && !task.startDate) task.startDate = task.dueDate;
-                    if (task.startDate && !task.dueDate) task.dueDate = task.startDate;
-                }
+                const updatedSchedule = mergeRemoteTaskSchedule(task, data);
+                task.dueDate = updatedSchedule.dueDate;
+                task.startDate = updatedSchedule.startDate;
+                if (data.timeZone !== undefined) task.timeZone = data.timeZone;
+                if (data.modifiedTime !== undefined) task.modifiedTime = data.modifiedTime;
                 task.updatedAt = new Date().toISOString();
                 if (data.etag !== undefined) task.etag = data.etag;
                 if (data.priority !== undefined) task.priority = data.priority;
@@ -1256,6 +1452,8 @@ export class SyncManager {
         local.updatedAt = new Date().toISOString();
         local.dueDate = remote.dueDate || null;
         local.startDate = remote.startDate || null;
+        local.timeZone = remote.timeZone || local.timeZone;
+        local.modifiedTime = remote.modifiedTime || local.modifiedTime;
         local.etag = remote.etag || null;
         local.isAllDay = remote.isAllDay || false;
         local.kind = remote.kind || local.kind || "TEXT";
@@ -1301,6 +1499,8 @@ export class SyncManager {
             updatedAt: new Date().toISOString(),
             dueDate: task.dueDate || null,
             startDate: task.startDate || null,
+            timeZone: task.timeZone,
+            modifiedTime: task.modifiedTime,
             etag: task.etag || null,
             isAllDay: task.isAllDay || false,
             kind: task.kind || "TEXT",
@@ -1348,6 +1548,8 @@ export class SyncManager {
     }
 
     dispose() {
+        this._disposed = true;
+        this._rerunRequested = false;
         if (this._reverseCompletionFollowUpTimer) {
             window.clearTimeout(this._reverseCompletionFollowUpTimer);
             this._reverseCompletionFollowUpTimer = null;
@@ -1358,6 +1560,8 @@ export class SyncManager {
         }
         this._reverseCompletionFollowUpInProgress = false;
         this._syncConsistencyFollowUpInProgress = false;
+        this.isSyncing = false;
+        this.setSyncState({ phase: "idle", isRunning: false, queued: false, finishedAt: new Date().toISOString(), message: "同步已停止" });
     }
 
     // ==================== Reverse Completion Verification ====================
@@ -1388,8 +1592,9 @@ export class SyncManager {
 
     async _verifySingleDidaTaskStatus(projectId: string, didaId: string): Promise<{ kind: string; data?: any; httpStatus?: number; error?: any }> {
         if (!didaId) return { kind: "uncertain" };
-        const url = this.plugin.apiClient.buildApiUrl(`/project/${projectId}/task/${didaId}`);
         try {
+            const remoteProjectId = await this.resolveRemoteProjectId(projectId || "inbox");
+            const url = this.plugin.apiClient.buildApiUrl(`/project/${remoteProjectId}/task/${didaId}`);
             const res = await this.plugin.apiClient.makeAuthenticatedRequest(url);
             if (res.status === 404) return { kind: "not_found" };
             if (res.ok) {
@@ -1417,7 +1622,7 @@ export class SyncManager {
         }
         const meta = this._getReverseCompletionMeta(task.didaId);
         const updateMeta = (result: boolean) => {
-            if (context && context.decisionCache && context.decisionCache.has(task.didaId)) {
+            if (context && context.decisionCache) {
                 context.decisionCache.set(task.didaId, result);
             }
             return result;

@@ -17,6 +17,7 @@ const originalLoad = (Module as any)._load;
             requestUrl: async (options: any) => {
                 requests.push(options);
                 const response = queuedResponses.shift();
+                if (response === "pending") return await new Promise(() => { });
                 if (response instanceof Error) throw response;
                 return response || { status: 200, text: "{}", json: {} };
             }
@@ -192,6 +193,13 @@ async function run() {
     await assert.rejects(
         () => client.moveTask("p1", "p2", "task-4"),
         /移动任务失败/
+    );
+
+    client.requestTimeoutMs = 10;
+    queuedResponses = ["pending"];
+    await assert.rejects(
+        () => client.getProjects(),
+        /请求超时（0 秒）/
     );
 
     console.log("DidaApiClient OAuth and request tests passed");

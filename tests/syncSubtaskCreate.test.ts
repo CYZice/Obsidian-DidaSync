@@ -44,6 +44,7 @@ async function run() {
         async saveSettings() { this.saveSettingsCalls++; },
         apiClient: {
             buildApiUrl,
+            async getCompletedTasks() { return []; },
             async makeAuthenticatedRequest(url: string, options: any = {}) {
                 calls.push({ url, payload: options.body ? JSON.parse(options.body) : null });
                 return {

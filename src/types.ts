@@ -44,6 +44,7 @@ export interface DidaTask {
     parentId?: string | null; // For subtasks/items if flattened
     createdAt?: string;
     updatedAt?: string;
+    modifiedTime?: string;
     etag?: string;
 
     // Native Sync fields
@@ -174,6 +175,7 @@ export interface PendingSyncOperation {
     type: PendingSyncOperationType;
     payload?: Partial<DidaTask> | PendingPlacementOperationPayload;
     createdAt: string;
+    modifiedAt?: string;
     attempts: number;
     lastError?: string;
 }
@@ -184,7 +186,29 @@ export interface SyncResult {
     downloaded: number;
     failedScopes: string[];
     failedOperations: string[];
+    failedDetails?: SyncFailureDetail[];
     cleanupPerformed: boolean;
+}
+
+export type SyncPhase = "idle" | "queued" | "uploading" | "downloading" | "reconciling" | "completed" | "failed";
+
+export interface SyncRunState {
+    phase: SyncPhase;
+    isRunning: boolean;
+    queued: boolean;
+    startedAt: string | null;
+    finishedAt: string | null;
+    message: string;
+}
+
+export interface SyncFailureDetail {
+    localTaskId?: string;
+    didaId?: string;
+    title?: string;
+    projectName?: string;
+    operation?: PendingSyncOperationType | string;
+    reason: string;
+    attempts?: number;
 }
 
 export type OAuthCallbackMode = "localhost" | "ipv4";

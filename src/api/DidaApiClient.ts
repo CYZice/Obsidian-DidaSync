@@ -17,9 +17,20 @@ export class DidaApiClient {
     desktopOAuthServer: { close(): Promise<void> } | null = null;
     oauthTimeout: ReturnType<typeof setTimeout> | null = null;
     oauthInProgress: boolean = false;
+    requestTimeoutMs: number = 20000;
+    private disposed: boolean = false;
 
     constructor(plugin: DidaSyncPlugin) {
         this.plugin = plugin;
+    }
+
+    async dispose() {
+        this.disposed = true;
+        if (this.oauthTimeout) {
+            clearTimeout(this.oauthTimeout);
+            this.oauthTimeout = null;
+        }
+        await this.stopOAuthServers();
     }
 
     get settings(): DidaSyncSettings {
@@ -410,14 +421,21 @@ export class DidaApiClient {
     }
 
     private async requestUrlLike(url: string, options: { method?: string; body?: string; headers?: Record<string, string> }): Promise<ResponseLike> {
+        if (this.disposed) throw new Error("网络请求已取消：插件正在卸载");
+        let timeout: ReturnType<typeof setTimeout> | null = null;
         try {
-            const response = await requestUrl({
-                url,
-                method: options.method || "GET",
-                body: options.body || undefined,
-                headers: options.headers || {},
-                throw: false
-            });
+            const response = await Promise.race([
+                requestUrl({
+                    url,
+                    method: options.method || "GET",
+                    body: options.body || undefined,
+                    headers: options.headers || {},
+                    throw: false
+                }),
+                new Promise<never>((_resolve, reject) => {
+                    timeout = setTimeout(() => reject(new Error(`请求超时（${Math.round(this.requestTimeoutMs / 1000)} 秒）`)), this.requestTimeoutMs);
+                })
+            ]);
             const text = typeof response.text === "string" ? response.text : "";
             return {
                 ok: response.status >= 200 && response.status < 300,
@@ -430,6 +448,8 @@ export class DidaApiClient {
             };
         } catch (e: any) {
             throw new Error("网络请求错误: " + (e?.message || e));
+        } finally {
+            if (timeout) clearTimeout(timeout);
         }
     }
 

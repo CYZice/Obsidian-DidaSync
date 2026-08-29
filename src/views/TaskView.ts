@@ -1,4 +1,4 @@
-﻿import { ItemView, Notice, WorkspaceLeaf } from 'obsidian';
+import { ItemView, Notice, WorkspaceLeaf } from 'obsidian';
 import DidaSyncPlugin from '../main';
 import { Menu, Platform } from 'obsidian';
 import { DatePickerModal } from '../modals/DatePickerModal';
@@ -2113,10 +2113,15 @@ export class TaskView extends ItemView {
                 cls: "dida-sync-btn"
             });
             setIconElement(syncBtn, "refresh-cw");
-            const syncing = this.plugin.isManualSyncing || this.plugin.syncManager?.isSyncing === true;
+            const syncState = this.plugin.syncManager?.getSyncState?.();
+            const syncing = this.plugin.isManualSyncing || syncState?.isRunning === true || this.plugin.syncManager?.isSyncing === true;
             syncBtn.classList.toggle("is-syncing", syncing);
-            syncBtn.disabled = syncing;
-            syncBtn.title = syncing ? "正在同步" : "手动同步";
+            syncBtn.disabled = this.plugin.isManualSyncing;
+            syncBtn.title = syncState?.queued
+                ? "已排队，将在当前同步结束后再次同步"
+                : syncing
+                    ? `${syncState?.message || "正在同步"}；点击可排队再次同步`
+                    : "手动同步";
             syncBtn.onclick = async () => {
                 if (this.plugin.isPluginActivated) {
                     await this.plugin.safeManualSync();

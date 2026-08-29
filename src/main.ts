@@ -17,6 +17,7 @@ import { ProjectRenameModal } from './modals/ProjectRenameModal';
 import { TaskNoteSyncModal } from './modals/TaskNoteSyncModal';
 import { TaskSuggestionPopup } from './modals/TaskSuggestionPopup';
 import { TimelineViewModal } from './modals/TimelineViewModal';
+import { SyncFailureModal } from './modals/SyncFailureModal';
 import { DidaSyncSettingTab } from './settings/DidaSyncSettingTab';
 import { buildCompletedTaskCacheSegment, fetchCompletedTasksByRange, filterCompletedTasksByQuery, getMonthlyCompletedTaskRanges, isCompletedTaskRangeCovered, mergeCompletedTaskCacheSegments, mergeCompletedTasks, normalizeCompletedTaskCacheSegments } from './completedTaskCache';
 import { CompletedTaskCacheSegment, CompletedTasksQuery, DEFAULT_SETTINGS, DidaNoteSyncRunSource, DidaProject, DidaSyncSettings, DidaTask, ProjectCatalogEntry, SyncResult, TaskScheduleInput } from './types';
@@ -77,6 +78,7 @@ export default class DidaSyncPlugin extends Plugin {
     autoSyncTimeout: number | null = null;
     debouncedEditorChange: (editor: Editor, info: any) => void;
     statusBarItem: HTMLElement | null = null;
+    lastSyncResult: SyncResult | null = null;
     timelineRibbonIconEl: HTMLElement | null = null;
     isManualSyncing: boolean = false;
     _cachedTaskLeaf: any = null;
@@ -213,6 +215,7 @@ export default class DidaSyncPlugin extends Plugin {
         }
         this.clearAutoSync();
         this.syncManager?.dispose();
+        await this.apiClient?.dispose();
         try {
             if (this._handleOnlineForAutoSync) {
                 window.removeEventListener("online", this._handleOnlineForAutoSync);
@@ -1820,7 +1823,11 @@ export default class DidaSyncPlugin extends Plugin {
             this.updateStatusBar("未连接");
             this.statusBarItem.addEventListener("click", () => {
                 if (this.settings.accessToken) {
-                    this.openTaskViewWithCache();
+                    if (this.lastSyncResult && this.lastSyncResult.outcome !== "success" && (this.lastSyncResult.failedDetails?.length || this.lastSyncResult.failedScopes?.length)) {
+                        this.showSyncFailureDetails(this.lastSyncResult);
+                    } else {
+                        this.openTaskViewWithCache();
+                    }
                 } else {
                     this.apiClient.startOAuthFlow();
                 }
@@ -1847,8 +1854,13 @@ export default class DidaSyncPlugin extends Plugin {
             try {
                 if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) return;
             } catch (e) { }
-            this.scheduleNextAutoSync(60 * this.settings.syncInterval * 1000);
+            this.scheduleNextAutoSync(this.getAutoSyncIntervalMs());
         }
+    }
+
+    getAutoSyncIntervalMs() {
+        const configured = 60 * this.settings.syncInterval * 1000;
+        return Platform.isMobile ? configured : Math.min(configured, 60000);
     }
 
     scheduleNextAutoSync(delayMs: number) {
@@ -1906,7 +1918,7 @@ export default class DidaSyncPlugin extends Plugin {
             } catch (e) {
             } finally {
                 if (this.settings.autoSync && this.settings.accessToken) {
-                    this.scheduleNextAutoSync(60 * this.settings.syncInterval * 1000);
+                    this.scheduleNextAutoSync(this.getAutoSyncIntervalMs());
                 }
             }
         } else {
@@ -2091,7 +2103,14 @@ export default class DidaSyncPlugin extends Plugin {
     async runIntegratedSync(options: { silentNotes?: boolean; noteSyncSource?: DidaNoteSyncRunSource } = {}): Promise<SyncResult> {
         let taskResult: SyncResult;
         try {
-            taskResult = await this.syncManager.runBidirectionalSync();
+            taskResult = await this.syncManager.runBidirectionalSync() || {
+                outcome: "success",
+                uploaded: 0,
+                downloaded: 0,
+                failedScopes: [],
+                failedOperations: [],
+                cleanupPerformed: false
+            };
         } catch (error: any) {
             taskResult = {
                 outcome: "failed",
@@ -2117,7 +2136,15 @@ export default class DidaSyncPlugin extends Plugin {
             }
         }
 
+        this.lastSyncResult = taskResult;
+        if (options.silentNotes !== true && taskResult.outcome !== "success" && (taskResult.failedDetails?.length || taskResult.failedScopes?.length)) {
+            this.showSyncFailureDetails(taskResult);
+        }
         return taskResult;
+    }
+
+    showSyncFailureDetails(result: SyncResult) {
+        new SyncFailureModal(this.app, this, result).open();
     }
 
     async manualSync() {
@@ -2128,7 +2155,7 @@ export default class DidaSyncPlugin extends Plugin {
 
     async safeManualSync() {
         if (!(await this.checkPluginStatusAndNotify())) return;
-        if (this.isManualSyncing || this.syncManager?.isSyncing) return;
+        if (this.isManualSyncing) return;
         this.isManualSyncing = true;
         this.refreshTaskView();
         try {

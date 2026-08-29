@@ -5872,3 +5872,30 @@ label+.dida-project-select {
 .dida-note-sync-record.is-error .dida-note-sync-record-meta {
     color: var(--text-error);
 }
+.dida-sync-failure-modal .dida-sync-failure-summary {
+    color: var(--text-muted);
+    margin-bottom: 0.75em;
+}
+
+.dida-sync-failure-list {
+    max-height: 55vh;
+    overflow-y: auto;
+    padding-right: 0.5em;
+}
+
+.dida-sync-failure-list li {
+    margin-bottom: 0.8em;
+}
+
+.dida-sync-failure-title {
+    font-weight: 600;
+}
+
+.dida-sync-failure-meta,
+.dida-sync-failure-reason,
+.dida-sync-failure-empty {
+    color: var(--text-muted);
+    font-size: var(--font-small);
+    margin-top: 0.2em;
+    overflow-wrap: anywhere;
+}

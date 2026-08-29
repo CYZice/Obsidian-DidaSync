@@ -319,6 +319,91 @@ async function run() {
     await syncManager.syncFromDidaList();
     assert.deepEqual(statuses, [], "a skipped overlapping sync should not overwrite the active status");
 
+    const lifecyclePlugin = {
+        settings: { accessToken: "token", tasks: [], pendingSyncOperations: [], reverseCompletionMeta: {}, syncConsistencyMeta: {} },
+        updateStatusBar() { },
+        refreshTaskView() { },
+        isReverseUpdating: false
+    };
+    const lifecycleManager = new SyncManager(lifecyclePlugin as any);
+    let releaseFirstUpload: (() => void) | null = null;
+    const firstUploadGate = new Promise<void>(resolve => { releaseFirstUpload = resolve; });
+    let uploadRuns = 0;
+    let downloadRuns = 0;
+    lifecycleManager.syncNewTasksToDidaList = async () => {
+        uploadRuns++;
+        if (uploadRuns === 1) await firstUploadGate;
+        return { outcome: "success", uploaded: 1, downloaded: 0, failedScopes: [], failedOperations: [], cleanupPerformed: false };
+    };
+    lifecycleManager.syncFromDidaList = async () => {
+        downloadRuns++;
+        return { outcome: "success", uploaded: 0, downloaded: 1, failedScopes: [], failedOperations: [], cleanupPerformed: true };
+    };
+    const firstRun = lifecycleManager.runBidirectionalSync();
+    await Promise.resolve();
+    const queuedRun = lifecycleManager.runBidirectionalSync();
+    assert.equal(lifecycleManager.getSyncState().queued, true, "an overlapping trigger should request one trailing run");
+    releaseFirstUpload?.();
+    const [firstResult, queuedResult] = await Promise.all([firstRun, queuedRun]);
+    assert.equal(uploadRuns, 2, "overlapping triggers should be coalesced into one trailing upload pass");
+    assert.equal(downloadRuns, 2, "the trailing pass should also pull remote changes");
+    assert.equal(firstResult.uploaded, 2);
+    assert.equal(queuedResult.downloaded, 2);
+    assert.equal(lifecycleManager.getSyncState().isRunning, false, "the lifecycle must leave the running state");
+
+    let verifyCalls = 0;
+    const deletedTask = { id: "local-deleted", didaId: "remote-deleted", projectId: "p1", status: 0 };
+    const deletionPlugin = {
+        settings: { accessToken: "token", tasks: [deletedTask], pendingSyncOperations: [], reverseCompletionMeta: {}, syncConsistencyMeta: {} },
+        apiClient: {
+            buildApiUrl,
+            async makeAuthenticatedRequest() {
+                verifyCalls++;
+                return { ok: false, status: 404 };
+            }
+        },
+        updateStatusBar() { },
+        refreshTaskView() { },
+        async saveSettings() { },
+        isReverseUpdating: false
+    };
+    const deletionManager = new SyncManager(deletionPlugin as any);
+    const deleted = await deletionManager._decideReverseCompletion(deletedTask, {
+        verifyBudget: { value: 20 },
+        decisionCache: new Map()
+    });
+    assert.equal(deleted, true, "a missing task should be verified during the first complete snapshot");
+    assert.equal(deletedTask.remoteDeleted, true, "a verified 404 should be classified as a remote deletion");
+    assert.equal(verifyCalls, 1);
+
+    const remotelyCompletedTask = {
+        id: "local-completed",
+        didaId: "remote-completed",
+        projectId: "p1",
+        status: 0,
+        updatedAt: new Date().toISOString()
+    };
+    let completedVerificationCalls = 0;
+    const completedPlugin = {
+        settings: { accessToken: "token", tasks: [remotelyCompletedTask], pendingSyncOperations: [], reverseCompletionMeta: {}, syncConsistencyMeta: {} },
+        apiClient: {
+            async getCompletedTasks() {
+                completedVerificationCalls++;
+                return [{ id: "remote-completed", completedTime: "2026-08-29T12:00:00+0800" }];
+            }
+        },
+        isNoteSyncTaskLike() { return false; },
+        updateStatusBar() { },
+        refreshTaskView() { },
+        async saveSettings() { },
+        isReverseUpdating: false
+    };
+    const completedManager = new SyncManager(completedPlugin as any);
+    await completedManager.markExtraTasksAsCompleted([]);
+    assert.equal(remotelyCompletedTask.status, 2, "completed history should win over deletion classification");
+    assert.equal(remotelyCompletedTask.remoteDeleted, false);
+    assert.ok(completedVerificationCalls > 0);
+
     console.log("repeat task cloud authority regression test passed");
 }
 
