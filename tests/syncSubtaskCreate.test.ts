@@ -272,7 +272,10 @@ async function run() {
         items: []
     };
     plugin.settings.tasks.push(reverseCompletedSubtask);
-    (manager as any)._decideReverseCompletion = async () => true;
+    plugin.apiClient.getCompletedTasks = async () => [{
+        id: "child-reverse-remote",
+        completedTime: "2026-08-29T12:00:00+0800"
+    }];
     await manager.markExtraTasksAsCompleted([
         { id: "child-remote" },
         { id: "child-completed-remote" },

@@ -1,49 +1,45 @@
 import { Notice } from "obsidian";
-import { fetchCompletedTasksByRange } from "../completedTaskCache";
 import DidaSyncPlugin from "../main";
 import { formatTaskLine } from "../taskLineFormat";
 import { applyTaskScheduleToPayload, mergeRemoteTaskSchedule } from "../taskScheduleSync";
+import { SyncRunContext, SyncRunCoordinator } from "../sync/SyncRunCoordinator";
+import { shouldPreferPendingLocalChange } from "../sync/TaskConflictPolicy";
+import { reconcileMissingRemoteTasks, RemoteTaskVerification, verifyMissingRemoteTask } from "../sync/RemoteTaskReconciler";
 import { DidaTask, PendingPlacementOperationPayload, PendingSyncOperation, PendingSyncOperationType, SyncFailureDetail, SyncResult, SyncRunState } from "../types";
 import { ensureTaskCompletedTime, normalizeRemoteCompletedTime } from "../utils";
 import { TASK_VIEW_TYPE, TaskView } from "../views/TaskView";
 
-// Reverse completion verification constants
-const REVERSE_COMPLETION_MISSING_THRESHOLD = 1;
 const REVERSE_COMPLETION_MAX_VERIFY_PER_SYNC = 20;
-const REVERSE_COMPLETION_FOLLOWUP_DELAY_MS = 2000;
-const REVERSE_COMPLETION_MAX_FOLLOWUP_PASSES = 6;
 const SYNC_RUN_TIMEOUT_MS = 90000;
 
 export class SyncManager {
     plugin: DidaSyncPlugin;
     isSyncing: boolean = false;
-    _reverseCompletionFollowUpInProgress: boolean = false;
-    _reverseCompletionFollowUpTimer: number | null = null;
     _syncConsistencyFollowUpInProgress: boolean = false;
     _syncConsistencyFollowUpTimer: number | null = null;
-    private _activeSyncPromise: Promise<SyncResult> | null = null;
-    private _rerunRequested: boolean = false;
-    private _disposed: boolean = false;
-    private _syncState: SyncRunState = {
-        phase: "idle",
-        isRunning: false,
-        queued: false,
-        startedAt: null,
-        finishedAt: null,
-        message: "未同步"
-    };
+    private syncRunCoordinator: SyncRunCoordinator<SyncResult>;
 
     constructor(plugin: DidaSyncPlugin) {
         this.plugin = plugin;
+        this.syncRunCoordinator = new SyncRunCoordinator<SyncResult>({
+            timeoutMs: SYNC_RUN_TIMEOUT_MS,
+            createSkippedResult: () => this.emptySyncResult("skipped"),
+            createFailureResult: error => ({
+                ...this.emptySyncResult("failed"),
+                failedOperations: [error instanceof Error ? error.message : String(error)]
+            }),
+            mergeResults: (current, next) => this.mergeSyncResults(current, next),
+            runOnce: context => this.runSingleBidirectionalSync(context),
+            onStateChange: state => {
+                this.isSyncing = state.isRunning;
+                if (typeof this.plugin.refreshTaskView === "function") this.plugin.refreshTaskView();
+            },
+            onTimeout: () => this.plugin.updateStatusBar("同步超时")
+        });
     }
 
     getSyncState(): SyncRunState {
-        return { ...this._syncState };
-    }
-
-    private setSyncState(patch: Partial<SyncRunState>) {
-        this._syncState = { ...this._syncState, ...patch };
-        if (typeof this.plugin.refreshTaskView === "function") this.plugin.refreshTaskView();
+        return this.syncRunCoordinator.getState();
     }
 
     private emptySyncResult(outcome: SyncResult["outcome"] = "success"): SyncResult {
@@ -72,20 +68,6 @@ export class SyncManager {
         };
     }
 
-    private async withRunTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
-        let timer: ReturnType<typeof setTimeout> | null = null;
-        try {
-            return await Promise.race([
-                work,
-                new Promise<never>((_resolve, reject) => {
-                    timer = setTimeout(() => reject(new Error(`同步运行超时（${Math.round(timeoutMs / 1000)} 秒）`)), timeoutMs);
-                })
-            ]);
-        } finally {
-            if (timer) clearTimeout(timer);
-        }
-    }
-
     getPendingOperations(): PendingSyncOperation[] {
         if (!Array.isArray(this.plugin.settings.pendingSyncOperations)) {
             this.plugin.settings.pendingSyncOperations = [];
@@ -103,15 +85,6 @@ export class SyncManager {
         return this.getPendingOperations().find(operation =>
             operation.localTaskId === task.id || (!!task.didaId && operation.didaId === task.didaId)
         );
-    }
-
-    private shouldPreferPendingLocalChange(operation: PendingSyncOperation, remote: any): boolean {
-        const remoteModified = remote?.modifiedTime || remote?.updatedTime || remote?.updateTime;
-        if (!remoteModified) return true;
-        const remoteTime = Date.parse(remoteModified);
-        const localTime = Date.parse(operation.modifiedAt || operation.createdAt);
-        if (!Number.isFinite(remoteTime) || !Number.isFinite(localTime)) return true;
-        return localTime >= remoteTime;
     }
 
     hasPendingDelete(didaId: string): boolean {
@@ -590,61 +563,22 @@ export class SyncManager {
 
     async runBidirectionalSync(): Promise<SyncResult> {
         const skipped = this.emptySyncResult("skipped");
-        if (!this.plugin.settings.accessToken || this.plugin.isReverseUpdating || this._disposed) return skipped;
-        if (this._activeSyncPromise) {
-            this._rerunRequested = true;
-            this.setSyncState({ phase: "queued", queued: true, message: "当前同步结束后再次同步" });
+        if (!this.plugin.settings.accessToken || this.plugin.isReverseUpdating) return skipped;
+        const wasRunning = this.syncRunCoordinator.isRunning;
+        const result = this.syncRunCoordinator.run();
+        if (wasRunning) {
             this.plugin.updateStatusBar("已排队再次同步");
-            return this._activeSyncPromise;
         }
-
-        this.isSyncing = true;
-        this.setSyncState({
-            phase: "uploading",
-            isRunning: true,
-            queued: false,
-            startedAt: new Date().toISOString(),
-            finishedAt: null,
-            message: "正在上传本地修改"
-        });
-
-        const runPromise = this.runSyncLoop().finally(() => {
-            this.isSyncing = false;
-            this._activeSyncPromise = null;
-            this.setSyncState({
-                isRunning: false,
-                queued: false,
-                finishedAt: new Date().toISOString()
-            });
-        });
-        this._activeSyncPromise = runPromise;
-        return runPromise;
+        return result;
     }
 
-    private async runSyncLoop(): Promise<SyncResult> {
-        let aggregate = this.emptySyncResult("skipped");
-        do {
-            this._rerunRequested = false;
-            let result: SyncResult;
-            try {
-                result = await this.withRunTimeout(this.runSingleBidirectionalSync(), SYNC_RUN_TIMEOUT_MS);
-            } catch (error: any) {
-                const message = error?.message || String(error);
-                result = { ...this.emptySyncResult("failed"), failedOperations: [message] };
-                this.plugin.updateStatusBar("同步超时");
-            }
-            aggregate = aggregate.outcome === "skipped" ? result : this.mergeSyncResults(aggregate, result);
-        } while (this._rerunRequested && !this._disposed);
-        return aggregate;
-    }
-
-    private async runSingleBidirectionalSync(): Promise<SyncResult> {
+    private async runSingleBidirectionalSync(context: SyncRunContext): Promise<SyncResult> {
         const failed = this.emptySyncResult("failed");
-        this.setSyncState({ phase: "uploading", queued: false, message: "正在上传本地修改" });
+        context.setPhase("uploading", "正在上传本地修改");
         this.plugin.updateStatusBar("上传本地修改...");
         try {
             const upload = await this.syncNewTasksToDidaList();
-            this.setSyncState({ phase: "downloading", message: "正在拉取远端任务" });
+            context.setPhase("downloading", "正在拉取远端任务");
             this.plugin.updateStatusBar("拉取远端任务...");
             const download = await this.syncFromDidaList(true);
             const failedOperations = [...upload.failedOperations, ...download.failedOperations];
@@ -664,15 +598,15 @@ export class SyncManager {
                 failedDetails,
                 cleanupPerformed: download.cleanupPerformed
             };
-            this.setSyncState({
-                phase: outcome === "failed" ? "failed" : "completed",
-                message: outcome === "success" ? "同步完成" : outcome === "partial" ? "部分同步失败" : "同步失败"
-            });
+            context.setPhase(
+                outcome === "failed" ? "failed" : "completed",
+                outcome === "success" ? "同步完成" : outcome === "partial" ? "部分同步失败" : "同步失败"
+            );
             this.plugin.updateStatusBar(outcome === "success" ? "已连接" : outcome === "partial" ? "部分同步失败" : "同步失败");
             return result;
         } catch (error: any) {
             const message = error?.message || String(error);
-            this.setSyncState({ phase: "failed", message });
+            context.setPhase("failed", message);
             this.plugin.updateStatusBar("同步失败");
             return { ...failed, failedOperations: [message] };
         }
@@ -864,7 +798,7 @@ export class SyncManager {
                         const remoteKind = typeof remote.kind === "string" ? remote.kind.trim().toUpperCase() : "";
                         const pendingOperation = this.getPendingOperation(local);
                         if (pendingOperation && remoteKind !== "NOTE") {
-                            if (this.shouldPreferPendingLocalChange(pendingOperation, remote)) continue;
+                            if (shouldPreferPendingLocalChange(pendingOperation, remote)) continue;
                             await this.removeOperation(pendingOperation);
                         }
                         let changed = false;
@@ -1035,7 +969,7 @@ export class SyncManager {
             const fullSnapshot = projectListSucceeded
                 && inboxSucceeded
                 && Array.from(expectedProjects).every(projectId => successfulProjects.has(projectId));
-            if (lockHeld) this.setSyncState({ phase: "reconciling", message: "正在核对完成与删除状态" });
+            if (lockHeld) this.syncRunCoordinator.setPhase("reconciling", "正在核对完成与删除状态");
             if (fullSnapshot) this._refreshReverseCompletionSeenMeta(tasks);
             const deletedCount = 0;
             let extraCount = 0;
@@ -1102,65 +1036,21 @@ export class SyncManager {
     }
 
     async markExtraTasksAsCompleted(tasks: any[]) {
-        const remoteIds = new Set(tasks.map(t => t.id));
-        const extra = this.plugin.settings.tasks.filter(t => t.didaId && !this.hasPendingOperation(t) && !this.plugin.isNoteSyncTaskLike(t)).filter(t => !remoteIds.has(t.didaId as string) && t.status !== 2);
-        if (extra.length === 0) return 0;
-        const now = new Date();
-        const candidateTimes = extra
-            .map(task => {
-                const meta = this._getReverseCompletionMeta(task.didaId as string);
-                return meta.lastSeenAt || task.updatedAt || task.createdAt || null;
-            })
-            .map(value => value ? new Date(value).getTime() : NaN)
-            .filter(value => Number.isFinite(value));
-        const fallbackStart = now.getTime() - 90 * 24 * 60 * 60 * 1000;
-        const earliestCandidateTime = candidateTimes.length > 0 ? Math.min(...candidateTimes) : fallbackStart;
-        const startDate = new Date(Math.min(now.getTime(), earliestCandidateTime) - 24 * 60 * 60 * 1000);
-        const completedResult = await fetchCompletedTasksByRange(
-            { startDate, endDate: now },
-            async query => {
+        const count = await reconcileMissingRemoteTasks({
+            localTasks: this.plugin.settings.tasks,
+            activeRemoteTasks: tasks,
+            hasPendingOperation: task => this.hasPendingOperation(task),
+            isNoteTask: task => this.plugin.isNoteSyncTaskLike(task),
+            getMeta: didaId => this._getReverseCompletionMeta(didaId),
+            fetchCompletedTasks: async query => {
                 const completedTasks = await this.plugin.apiClient.getCompletedTasks(query);
                 if (!Array.isArray(completedTasks)) throw new Error("已完成任务接口返回了无效数据");
                 return completedTasks;
-            }
-        );
-        if (completedResult.truncatedSegments.length > 0) {
-            throw new Error("已完成任务记录不完整，跳过缺失任务清理");
-        }
-        const completedById = new Map<string, any>();
-        for (const completedTask of completedResult.tasks) {
-            const id = String(completedTask?.id || completedTask?.didaId || "").trim();
-            if (id) completedById.set(id, completedTask);
-        }
-        let count = 0;
-        const verifyBudget = { value: REVERSE_COMPLETION_MAX_VERIFY_PER_SYNC };
-        const decisionCache = new Map<string, boolean>();
-        for (const task of extra) {
-            try {
-                const completedTask = completedById.get(task.didaId as string);
-                if (completedTask) {
-                    task.remoteDeleted = false;
-                    task.status = 2;
-                    task.completedTime = normalizeRemoteCompletedTime(completedTask.completedTime);
-                    ensureTaskCompletedTime(task);
-                    task.updatedAt = now.toISOString();
-                    count++;
-                    continue;
-                }
-                if (!await this._decideReverseCompletion(task, { verifyBudget, decisionCache })) continue;
-                const idx = this.plugin.settings.tasks.findIndex(t => t.didaId === task.didaId);
-                if (idx !== -1) {
-                    const local = this.plugin.settings.tasks[idx];
-                    if (!local.remoteDeleted) {
-                        local.status = 2;
-                        ensureTaskCompletedTime(local);
-                    }
-                    local.updatedAt = new Date().toISOString();
-                    count++;
-                }
-            } catch (e) { }
-        }
-        await this.plugin.saveSettings();
+            },
+            verifyTask: task => this._verifySingleDidaTaskStatus(task.projectId, task.didaId as string) as Promise<RemoteTaskVerification>,
+            verifyBudget: { value: REVERSE_COMPLETION_MAX_VERIFY_PER_SYNC }
+        });
+        if (count > 0) await this.plugin.saveSettings();
         return count;
     }
 
@@ -1548,20 +1438,13 @@ export class SyncManager {
     }
 
     dispose() {
-        this._disposed = true;
-        this._rerunRequested = false;
-        if (this._reverseCompletionFollowUpTimer) {
-            window.clearTimeout(this._reverseCompletionFollowUpTimer);
-            this._reverseCompletionFollowUpTimer = null;
-        }
+        this.syncRunCoordinator.dispose();
         if (this._syncConsistencyFollowUpTimer) {
             window.clearTimeout(this._syncConsistencyFollowUpTimer);
             this._syncConsistencyFollowUpTimer = null;
         }
-        this._reverseCompletionFollowUpInProgress = false;
         this._syncConsistencyFollowUpInProgress = false;
         this.isSyncing = false;
-        this.setSyncState({ phase: "idle", isRunning: false, queued: false, finishedAt: new Date().toISOString(), message: "同步已停止" });
     }
 
     // ==================== Reverse Completion Verification ====================
@@ -1590,7 +1473,7 @@ export class SyncManager {
         }
     }
 
-    async _verifySingleDidaTaskStatus(projectId: string, didaId: string): Promise<{ kind: string; data?: any; httpStatus?: number; error?: any }> {
+    async _verifySingleDidaTaskStatus(projectId: string, didaId: string): Promise<RemoteTaskVerification> {
         if (!didaId) return { kind: "uncertain" };
         try {
             const remoteProjectId = await this.resolveRemoteProjectId(projectId || "inbox");
@@ -1620,158 +1503,13 @@ export class SyncManager {
         if (context && context.decisionCache && context.decisionCache.has(task.didaId)) {
             return context.decisionCache.get(task.didaId);
         }
-        const meta = this._getReverseCompletionMeta(task.didaId);
-        const updateMeta = (result: boolean) => {
-            if (context && context.decisionCache) {
-                context.decisionCache.set(task.didaId, result);
-            }
-            return result;
-        };
-        meta.missingStreak = (meta.missingStreak || 0) + 1;
-        meta.lastMissingAt = new Date().toISOString();
-        if (meta.missingStreak < REVERSE_COMPLETION_MISSING_THRESHOLD) return updateMeta(false);
-        const budget = context && context.verifyBudget;
-        if (!budget || budget.value <= 0) return updateMeta(false);
-        budget.value--;
-        const result = await this._verifySingleDidaTaskStatus(task.projectId, task.didaId);
-        switch (result.kind) {
-            case "completed":
-                task.remoteDeleted = false;
-                return updateMeta(true);
-            case "not_found":
-                task.remoteDeleted = true;
-                return updateMeta(true);
-            case "still_active":
-                task.remoteDeleted = false;
-                meta.missingStreak = 0;
-                return updateMeta(false);
-            default:
-                return updateMeta(false);
-        }
-    }
-
-    _collectReverseCompletionCandidates(): Array<{ didaId: string; projectId: string }> {
-        const meta = this.plugin.settings && this.plugin.settings.reverseCompletionMeta;
-        if (!meta || typeof meta !== "object" || Object.keys(meta).length === 0) return [];
-        const taskMap = new Map<string, any>();
-        for (const task of this.plugin.settings.tasks) {
-            if (task && task.didaId) taskMap.set(task.didaId, task);
-        }
-        const candidates: Array<{ didaId: string; projectId: string }> = [];
-        for (const didaId of Object.keys(meta)) {
-            const m = meta[didaId];
-            if (!m || typeof m !== "object") continue;
-            const missingStreak = m.missingStreak || 0;
-            if (missingStreak < 1 || missingStreak >= REVERSE_COMPLETION_MISSING_THRESHOLD) continue;
-            const task = taskMap.get(didaId);
-            if (task && task.status !== 2) {
-                candidates.push({ didaId, projectId: task.projectId });
-            }
-        }
-        return candidates;
-    }
-
-    async _runReverseCompletionFollowUpPass(tasks: Array<{ didaId: string; projectId: string }>, verifyBudget: { value: number }, pass: number) {
-        const toRetry: Array<{ didaId: string; projectId: string }> = [];
-        const toConfirm: Array<{ didaId: string; projectId: string }> = [];
-        for (const task of tasks) {
-            if (verifyBudget.value <= 0) {
-                toRetry.push(task);
-                continue;
-            }
-            const localTask = this.plugin.settings.tasks.find((t: any) => t && t.didaId === task.didaId);
-            if (localTask && localTask.status !== 2) {
-                verifyBudget.value--;
-                let result = { kind: "uncertain" };
-                try {
-                    result = await this._verifySingleDidaTaskStatus(task.projectId, task.didaId);
-                } catch (e) {
-                    result = { kind: "uncertain", error: e };
-                }
-                const meta = this._getReverseCompletionMeta(task.didaId);
-                switch (result.kind) {
-                    case "still_active":
-                        meta.missingStreak = 0;
-                        meta.lastSeenAt = new Date().toISOString();
-                        break;
-                    case "completed":
-                        localTask.remoteDeleted = false;
-                        meta.missingStreak = (meta.missingStreak || 0) + 1;
-                        meta.lastMissingAt = new Date().toISOString();
-                        if (meta.missingStreak >= REVERSE_COMPLETION_MISSING_THRESHOLD) {
-                            toConfirm.push(task);
-                        } else {
-                            toRetry.push(task);
-                        }
-                        break;
-                    case "not_found":
-                        localTask.remoteDeleted = true;
-                        meta.missingStreak = (meta.missingStreak || 0) + 1;
-                        meta.lastMissingAt = new Date().toISOString();
-                        if (meta.missingStreak >= REVERSE_COMPLETION_MISSING_THRESHOLD) {
-                            toConfirm.push(task);
-                        } else {
-                            toRetry.push(task);
-                        }
-                        break;
-                    default:
-                        toRetry.push(task);
-                }
-            }
-        }
-        if (toConfirm.length > 0) {
-            await this._confirmReverseCompletionTasks(toConfirm);
-        }
-        return toRetry;
-    }
-
-    async _confirmReverseCompletionTasks(tasks: Array<{ didaId: string; projectId: string }>) {
-        for (const task of tasks) {
-            const localTask = this.plugin.settings.tasks.find((t: any) => t && t.didaId === task.didaId);
-            if (localTask && localTask.status !== 2) {
-                if (!localTask.remoteDeleted) {
-                    localTask.status = 2;
-                    ensureTaskCompletedTime(localTask);
-                }
-                localTask.updatedAt = new Date().toISOString();
-                await this.plugin.saveSettings();
-            }
-        }
-        if (tasks.length > 0) {
-            this.plugin.refreshTaskView();
-        }
-    }
-
-    _scheduleReverseCompletionFollowUp() {
-        if (this._reverseCompletionFollowUpInProgress) return;
-        const candidates = this._collectReverseCompletionCandidates();
-        if (!candidates || candidates.length === 0) return;
-        if (this._reverseCompletionFollowUpTimer) {
-            clearTimeout(this._reverseCompletionFollowUpTimer);
-            this._reverseCompletionFollowUpTimer = null;
-        }
-        let pass = 0;
-        const tasks = candidates.slice();
-        const verifyBudget = { value: REVERSE_COMPLETION_MAX_VERIFY_PER_SYNC };
-        const runPass = async () => {
-            if (!this._isPluginAliveForFollowUp()) return;
-            this._reverseCompletionFollowUpTimer = null;
-            this._reverseCompletionFollowUpInProgress = true;
-            try {
-                pass++;
-                tasks.slice();
-                const remaining = await this._runReverseCompletionFollowUpPass(tasks, verifyBudget, pass);
-                tasks.length = 0;
-                tasks.push(...remaining);
-            } catch (e) {
-            } finally {
-                this._reverseCompletionFollowUpInProgress = false;
-            }
-            if (this._isPluginAliveForFollowUp() && tasks.length > 0 && pass < REVERSE_COMPLETION_MAX_FOLLOWUP_PASSES) {
-                this._reverseCompletionFollowUpTimer = window.setTimeout(runPass, REVERSE_COMPLETION_FOLLOWUP_DELAY_MS);
-            }
-        };
-        this._reverseCompletionFollowUpTimer = window.setTimeout(runPass, REVERSE_COMPLETION_FOLLOWUP_DELAY_MS);
+        const result = await verifyMissingRemoteTask(task, {
+            getMeta: didaId => this._getReverseCompletionMeta(didaId),
+            verifyTask: candidate => this._verifySingleDidaTaskStatus(candidate.projectId, candidate.didaId as string),
+            verifyBudget: context?.verifyBudget || { value: 0 }
+        });
+        context?.decisionCache?.set(task.didaId, result);
+        return result;
     }
 
     _isPluginAliveForFollowUp(): boolean {
