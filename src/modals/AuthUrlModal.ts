@@ -1,11 +1,14 @@
 import { App, Modal, Setting } from "obsidian";
+import DidaSyncPlugin from "../main";
 
 export class AuthUrlModal extends Modal {
+    plugin: DidaSyncPlugin;
     url: string;
     redirectUri: string;
 
-    constructor(app: App, url: string, redirectUri: string) {
+    constructor(app: App, plugin: DidaSyncPlugin, url: string, redirectUri: string) {
         super(app);
+        this.plugin = plugin;
         this.url = url;
         this.redirectUri = redirectUri;
     }
@@ -13,14 +16,14 @@ export class AuthUrlModal extends Modal {
     onOpen() {
         const { contentEl } = this;
         contentEl.empty();
-        contentEl.createEl("h2", { text: "OAuth认证" });
-        contentEl.createEl("p", { text: "如果浏览器没有自动打开，请手动复制以下链接到浏览器中完成认证：" });
+        contentEl.createEl("h2", { text: this.plugin.t("modal.auth.title") });
+        contentEl.createEl("p", { text: this.plugin.t("modal.auth.manualOpen") });
         const box = contentEl.createDiv("dida-auth-box");
         box.createEl("code", { text: this.url });
-        contentEl.createEl("p", { text: "认证完成后，请确保浏览器重定向到了以下地址：" });
+        contentEl.createEl("p", { text: this.plugin.t("modal.auth.redirectExpect") });
         contentEl.createEl("code", { text: this.redirectUri });
         new Setting(contentEl).addButton(btn => {
-            btn.setButtonText("关闭").onClick(() => this.close());
+            btn.setButtonText(this.plugin.t("common.close")).onClick(() => this.close());
         });
     }
 

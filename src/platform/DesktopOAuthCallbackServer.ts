@@ -1,4 +1,5 @@
 import * as http from "http";
+import { translateDefault, Translator } from "../i18n";
 
 export interface DesktopOAuthCallbackServerHandle {
     close(): Promise<void>;
@@ -15,9 +16,11 @@ interface StartOptions {
     listenTargets: ListenTarget[];
     onCode: (code: string) => void;
     onError: (error: string) => void;
+    translate?: Translator;
 }
 
 export async function startDesktopOAuthCallbackServer(options: StartOptions): Promise<DesktopOAuthCallbackServerHandle> {
+    const t = options.translate || translateDefault;
     const servers: http.Server[] = [];
     const close = async () => {
         const activeServers = servers.splice(0);
@@ -53,16 +56,16 @@ export async function startDesktopOAuthCallbackServer(options: StartOptions): Pr
                     const error = url.searchParams.get("error");
                     if (error) {
                         response.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
-                        response.end("<h1>OAuth 认证失败</h1><p>请返回 Obsidian 后重试。</p>");
+                        response.end(`<h1>${t("oauthServer.failHeading")}</h1><p>${t("oauthServer.retryHint")}</p>`);
                         options.onError(error);
                     } else if (code) {
                         response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-                        response.end("<h1>OAuth 认证成功</h1><p>可以关闭此页面并返回 Obsidian。</p>");
+                        response.end(`<h1>${t("oauthServer.successHeading")}</h1><p>${t("oauthServer.successHint")}</p>`);
                         options.onCode(code);
                     } else {
                         response.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
-                        response.end("<h1>OAuth 认证失败</h1><p>未收到授权码。</p>");
-                        options.onError("未收到授权码");
+                        response.end(`<h1>${t("oauthServer.failHeading")}</h1><p>${t("oauthServer.missingCodeHint")}</p>`);
+                        options.onError(t("error.noAuthCode"));
                     }
                 } catch (_error) {
                     response.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
@@ -72,7 +75,7 @@ export async function startDesktopOAuthCallbackServer(options: StartOptions): Pr
             servers.push(server);
             server.once("error", (error: Error) => {
                 const hostLabel = target.host.includes(":") ? `[${target.host}]` : target.host;
-                fail(new Error(`无法启动 OAuth 回调服务 ${hostLabel}:${options.port}: ${error.message}`));
+                fail(new Error(t("error.callbackServerStartSimple", { host: hostLabel, port: options.port, message: error.message })));
             });
             server.listen({ port: options.port, host: target.host, ipv6Only: target.ipv6Only }, () => {
                 pending -= 1;

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import Module from "node:module";
+import { MessageKey, MessageParams, translate } from "../src/i18n";
 
 const requests: any[] = [];
 let queuedResponses: any[] = [];
@@ -49,7 +50,8 @@ async function run() {
         async saveSettings() { this.saveCount++; },
         updateStatusBar(value: string) { this.status = value; },
         setupAutoSync() { },
-        getUserTimeZone() { return "Asia/Shanghai"; }
+        getUserTimeZone() { return "Asia/Shanghai"; },
+        t(key: MessageKey, params?: MessageParams) { return translate("zh", key, params); }
     };
     const client = new DidaApiClient(plugin as any);
 
@@ -102,6 +104,12 @@ async function run() {
     assert.equal(plugin.settings.accessToken, "mobile-access");
     assert.match(requests.at(-1).body, /code=mobile-code/);
     assert.match(requests.at(-1).body, /redirect_uri=http%3A%2F%2F127\.0\.0\.1%3A8765%2Fcallback/);
+
+    queuedResponses = [{ status: 400, text: '{"error":"invalid_grant","error_description":"Invalid redirect"}', json: {} }];
+    await assert.rejects(
+        () => client.exchangeCodeForToken("bad-code", "http://127.0.0.1:8000/callback"),
+        /OAuth 重定向地址不匹配.*127\.0\.0\.1:8000\/callback/
+    );
     platform.isMobile = false;
     plugin.settings.accessToken = "access-old";
     plugin.settings.refreshToken = "refresh-old";

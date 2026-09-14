@@ -17,6 +17,7 @@ export class DidaApiClient {
     desktopOAuthServer: { close(): Promise<void> } | null = null;
     oauthTimeout: ReturnType<typeof setTimeout> | null = null;
     oauthInProgress: boolean = false;
+    private oauthRedirectUri: string | null = null;
     requestTimeoutMs: number = 20000;
     private disposed: boolean = false;
 
@@ -82,31 +83,39 @@ export class DidaApiClient {
 
     async startOAuthFlow() {
         if (!this.settings.clientId || !this.settings.clientSecret) {
-            new Notice("请先在设置中配置Client ID和Client Secret");
+            new Notice(this.plugin.t("error.clientCredentialsMissing"));
             return;
         }
         if (this.oauthInProgress) {
-            new Notice("OAuth认证正在进行中...");
-            return;
+            // A previous browser flow may have lost its callback. Re-authorizing
+            // should replace that stale attempt instead of blocking the user.
+            await this.stopOAuthServers();
+            if (this.oauthTimeout) {
+                clearTimeout(this.oauthTimeout);
+                this.oauthTimeout = null;
+            }
+            this.oauthInProgress = false;
+            this.oauthRedirectUri = null;
         }
 
         try {
             this.oauthInProgress = true;
-            this.plugin.updateStatusBar("认证中...");
+            this.oauthRedirectUri = this.getRedirectUri();
+            this.plugin.updateStatusBar(this.plugin.t("status.authorizing"));
             if (!Platform.isMobile) {
                 await this.startOAuthServer();
             }
-            const redirectUri = this.getRedirectUri();
+            const redirectUri = this.oauthRedirectUri;
             const url = this.buildAuthUrlForRedirect(redirectUri);
             await this.openAuthUrl(url, redirectUri);
             if (Platform.isMobile) {
                 this.oauthInProgress = false;
-                this.plugin.updateStatusBar("等待授权码");
+                this.plugin.updateStatusBar(this.plugin.t("status.waitingForCode"));
             }
         } catch (t: any) {
-            new Notice("OAuth认证启动失败: " + (t?.message || t));
-            this.plugin.updateStatusBar("认证失败");
-            this.oauthInProgress = false;
+            new Notice(this.plugin.t("notice.oauthStartFailed", { message: t?.message || t }));
+            this.plugin.updateStatusBar(this.plugin.t("status.authFailed"));
+            this.cleanupOAuthServer();
         }
     }
 
@@ -126,13 +135,14 @@ export class DidaApiClient {
 
     async startManualOAuthFlow() {
         if (!this.settings.clientId || !this.settings.clientSecret) {
-            new Notice("请先在设置中配置Client ID和Client Secret");
+            new Notice(this.plugin.t("error.clientCredentialsMissing"));
             return;
         }
+        this.oauthRedirectUri = this.getRedirectUri();
         const redirectUri = this.getRedirectUri();
         const url = this.buildAuthUrlForRedirect(redirectUri);
         await this.openAuthUrl(url, redirectUri);
-        this.plugin.updateStatusBar("等待授权码");
+        this.plugin.updateStatusBar(this.plugin.t("status.waitingForCode"));
     }
 
     private async openAuthUrl(url: string, redirectUri: string = this.getRedirectUri()) {
@@ -147,7 +157,7 @@ export class DidaApiClient {
             window.open(url, "_blank");
             return;
         } catch (e) { }
-        new AuthUrlModal(this.plugin.app, url, redirectUri).open();
+        new AuthUrlModal(this.plugin.app, this.plugin, url, redirectUri).open();
     }
 
     async startOAuthServer() {
@@ -161,10 +171,11 @@ export class DidaApiClient {
             port: this.settings.serverPort,
             callbackBaseUrl: this.getCallbackBaseUrl(),
             listenTargets: this.getListenTargets(),
-            onCode: code => { void this.handleOAuthCallback(code); },
-            onError: error => this.handleOAuthError(error)
+            onCode: code => { void this.handleOAuthCallback(code, this.oauthRedirectUri || this.getRedirectUri()); },
+            onError: error => this.handleOAuthError(error),
+            translate: (key, params) => this.plugin.t(key, params)
         });
-        this.oauthTimeout = setTimeout(() => this.handleOAuthError("OAuth 认证超时"), 600000);
+        this.oauthTimeout = setTimeout(() => this.handleOAuthError(this.plugin.t("error.oauthTimeout")), 600000);
         return;
         /* Legacy inline server implementation retained only as commented migration context.
         if (this.oauthTimeout) {
@@ -189,11 +200,11 @@ export class DidaApiClient {
                             res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
                             res.end(`
                                 <html>
-                                    <head><title>OAuth认证失败</title></head>
+                                    <head><title>${this.plugin.t("oauthPage.failTitle")}</title></head>
                                     <body>
-                                        <h1>OAuth认证失败</h1>
-                                        <p>错误: ${error}</p>
-                                        <p>请关闭此页面并重试。</p>
+                                        <h1>${this.plugin.t("oauthPage.failTitle")}</h1>
+                                        <p>${this.plugin.t("oauthPage.errorDetail", { error })}</p>
+                                        <p>${this.plugin.t("oauthPage.failHint")}</p>
                                     </body>
                                 </html>
                             `);
@@ -202,10 +213,10 @@ export class DidaApiClient {
                             res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
                             res.end(`
                                 <html>
-                                    <head><title>认证成功</title></head>
+                                    <head><title>${this.plugin.t("oauthPage.successTitle")}</title></head>
                                     <body>
-                                        <h1>OAuth认证成功!</h1>
-                                        <p>您可以关闭此页面，返回 Obsidian 继续使用。</p>
+                                        <h1>${this.plugin.t("oauthPage.successHeading")}</h1>
+                                        <p>${this.plugin.t("oauthPage.successHint")}</p>
                                         <script>setTimeout(() => window.close(), 3000);</script>
                                     </body>
                                 </html>
@@ -215,14 +226,14 @@ export class DidaApiClient {
                             res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
                             res.end(`
                                 <html>
-                                    <head><title>认证失败</title></head>
+                                    <head><title>${this.plugin.t("oauthPage.missingCodeTitle")}</title></head>
                                     <body>
-                                        <h1>认证失败</h1>
-                                        <p>未收到授权码，请重试。</p>
+                                        <h1>${this.plugin.t("oauthPage.missingCodeTitle")}</h1>
+                                        <p>${this.plugin.t("oauthPage.missingCodeHint")}</p>
                                     </body>
                                 </html>
                             `);
-                            this.handleOAuthError("未收到授权码");
+                            this.handleOAuthError(this.plugin.t("error.noAuthCode"));
                         }
                     } else {
                         res.writeHead(404, { "Content-Type": "text/plain" });
@@ -257,7 +268,7 @@ export class DidaApiClient {
                 startedServers.push(server);
                 server.once("error", (err: any) => {
                     const hostLabel = target.host.includes(":") ? `[${target.host}]` : target.host;
-                    fail(new Error(`无法启动 OAuth 回调服务 ${hostLabel}:${this.settings.serverPort}: ${err.message}`));
+                    fail(new Error(this.plugin.t("error.callbackServerStart", { host: hostLabel, port: this.settings.serverPort, message: err.message })));
                 });
                 server.listen({
                     port: this.settings.serverPort,
@@ -272,7 +283,7 @@ export class DidaApiClient {
             });
 
             this.oauthTimeout = setTimeout(() => {
-                this.handleOAuthError("OAuth认证超时");
+                this.handleOAuthError(this.plugin.t("error.oauthTimeout"));
             }, 600000);
         });
     }
@@ -313,28 +324,29 @@ export class DidaApiClient {
         this.oauthServers = [];
         void this.stopOAuthServers();
         this.oauthInProgress = false;
+        this.oauthRedirectUri = null;
     }
 
-    async handleOAuthCallback(code: string, redirectUri: string = this.getRedirectUri()) {
+    async handleOAuthCallback(code: string, redirectUri: string = this.oauthRedirectUri || this.getRedirectUri()) {
         try {
             const tokens = await this.exchangeCodeForToken(code.trim(), redirectUri);
             this.settings.accessToken = tokens.access_token;
             this.settings.refreshToken = tokens.refresh_token || this.settings.refreshToken;
             await this.plugin.saveSettings();
-            new Notice("OAuth认证成功!");
-            this.plugin.updateStatusBar("已连接");
+            new Notice(this.plugin.t("notice.oauthSuccess"));
+            this.plugin.updateStatusBar(this.plugin.t("status.connected"));
             this.plugin.setupAutoSync();
         } catch (t: any) {
-            new Notice("认证失败: " + (t?.message || t));
-            this.plugin.updateStatusBar("认证失败");
+            new Notice(this.plugin.t("notice.authFailedDetail", { message: t?.message || t }));
+            this.plugin.updateStatusBar(this.plugin.t("status.authFailed"));
         } finally {
             this.cleanupOAuthServer();
         }
     }
 
     handleOAuthError(error: string) {
-        new Notice("OAuth认证失败: " + error);
-        this.plugin.updateStatusBar("认证失败");
+        new Notice(this.plugin.t("notice.oauthFailed", { error }));
+        this.plugin.updateStatusBar(this.plugin.t("status.authFailed"));
         this.cleanupOAuthServer();
     }
 
@@ -349,11 +361,15 @@ export class DidaApiClient {
 
         const res = await this.requestForm(this.getServiceConfig().tokenUrl, data);
         if (res.ok) return await res.json();
-        throw new Error(`Token请求失败: ${res.status} ` + await res.text());
+        const detail = await res.text();
+        if (res.status === 400 && /invalid_grant/i.test(detail) && /redirect/i.test(detail)) {
+            throw new Error(this.plugin.t("error.oauthRedirectMismatch", { redirectUri }));
+        }
+        throw new Error(this.plugin.t("error.tokenRequestFailed", { status: res.status, detail }));
     }
 
     async refreshAccessToken(): Promise<any> {
-        if (!this.settings.refreshToken) throw new Error("没有refresh token");
+        if (!this.settings.refreshToken) throw new Error(this.plugin.t("error.noRefreshToken"));
 
         const data = new URLSearchParams({
             grant_type: "refresh_token",
@@ -363,7 +379,7 @@ export class DidaApiClient {
         }).toString();
 
         const res = await this.requestForm(this.getServiceConfig().tokenUrl, data);
-        if (!res.ok) throw new Error("Token刷新失败");
+        if (!res.ok) throw new Error(this.plugin.t("error.tokenRefreshFailed"));
         const parsed = await res.json();
         this.settings.accessToken = parsed.access_token;
         if (parsed.refresh_token) {
@@ -384,7 +400,7 @@ export class DidaApiClient {
     }
 
     async makeAuthenticatedRequest(urlStr: string, options: any = {}): Promise<ResponseLike> {
-        if (!this.settings.accessToken) throw new Error("未认证，请先进行OAuth认证");
+        if (!this.settings.accessToken) throw new Error(this.plugin.t("error.notAuthenticated"));
 
         const requestOptions = {
             method: options.method || "GET",
@@ -406,8 +422,8 @@ export class DidaApiClient {
             this.settings.accessToken = "";
             this.settings.refreshToken = "";
             await this.plugin.saveSettings();
-            this.plugin.updateStatusBar("未连接");
-            throw new Error("认证已过期，请重新进行OAuth认证");
+            this.plugin.updateStatusBar(this.plugin.t("status.disconnected"));
+            throw new Error(this.plugin.t("error.authExpired"));
         }
 
         res = await this.requestUrlLike(urlStr, {
@@ -421,7 +437,7 @@ export class DidaApiClient {
     }
 
     private async requestUrlLike(url: string, options: { method?: string; body?: string; headers?: Record<string, string> }): Promise<ResponseLike> {
-        if (this.disposed) throw new Error("网络请求已取消：插件正在卸载");
+        if (this.disposed) throw new Error(this.plugin.t("error.requestCancelled"));
         let timeout: ReturnType<typeof setTimeout> | null = null;
         try {
             const response = await Promise.race([
@@ -433,7 +449,7 @@ export class DidaApiClient {
                     throw: false
                 }),
                 new Promise<never>((_resolve, reject) => {
-                    timeout = setTimeout(() => reject(new Error(`请求超时（${Math.round(this.requestTimeoutMs / 1000)} 秒）`)), this.requestTimeoutMs);
+                    timeout = setTimeout(() => reject(new Error(this.plugin.t("error.requestTimeout", { seconds: Math.round(this.requestTimeoutMs / 1000) }))), this.requestTimeoutMs);
                 })
             ]);
             const text = typeof response.text === "string" ? response.text : "";
@@ -447,7 +463,7 @@ export class DidaApiClient {
                 text: async () => text
             };
         } catch (e: any) {
-            throw new Error("网络请求错误: " + (e?.message || e));
+            throw new Error(this.plugin.t("error.networkError", { message: e?.message || e }));
         } finally {
             if (timeout) clearTimeout(timeout);
         }
@@ -584,7 +600,7 @@ export class DidaApiClient {
         });
         const objectBody = await this.readResponseBody(objectRes);
         if (objectRes.ok && this.isMoveResultSuccessful(objectBody.data, taskId)) return objectBody.data;
-        throw new Error(`移动任务失败: array ${arrayRes.status} ${arrayBody.text || JSON.stringify(arrayBody.data)}; object ${objectRes.status} ${objectBody.text || JSON.stringify(objectBody.data)}`);
+        throw new Error(this.plugin.t("error.moveTaskFailed", { arrayStatus: arrayRes.status, arrayDetail: arrayBody.text || JSON.stringify(arrayBody.data), objectStatus: objectRes.status, objectDetail: objectBody.text || JSON.stringify(objectBody.data) }));
     }
 
     async moveTasks(operations: Array<{ fromProjectId: string; toProjectId: string; taskId: string }>): Promise<any[]> {
