@@ -24,7 +24,7 @@ export class CompletedTasksModal extends Modal {
         const { contentEl } = this;
         contentEl.empty();
         contentEl.addClass("dida-completed-modal");
-        contentEl.createEl("h3", { text: "已完成任务" });
+        contentEl.createEl("h3", { text: this.plugin.t("completed.title") });
 
         const controls = contentEl.createDiv("dida-completed-controls");
         const startWrap = controls.createDiv("dida-completed-control");
@@ -36,11 +36,11 @@ export class CompletedTasksModal extends Modal {
         this.endFieldEl.addEventListener("click", () => this.openDatePicker("end"));
 
         const actions = controls.createDiv("dida-completed-actions");
-        const refreshBtn = actions.createEl("button", { text: "查询" });
+        const refreshBtn = actions.createEl("button", { text: this.plugin.t("completed.query") });
         refreshBtn.addClass("mod-cta");
         refreshBtn.addEventListener("click", () => void this.runQuery());
 
-        const presetBtn = actions.createEl("button", { text: "最近 7 天" });
+        const presetBtn = actions.createEl("button", { text: this.plugin.t("completed.last7") });
         presetBtn.addEventListener("click", () => {
             const preset = this.plugin.buildDefaultCompletedTaskQuery();
             this.currentQuery = preset;
@@ -77,13 +77,13 @@ export class CompletedTasksModal extends Modal {
     renderDateFields() {
         if (this.startFieldEl) {
             this.startFieldEl.empty();
-            this.startFieldEl.createSpan({ cls: "dida-completed-date-field-label", text: "开始日期" });
-            this.startFieldEl.createSpan({ cls: "dida-completed-date-field-value", text: this.extractDateValue(this.currentQuery.startDate) || "选择日期" });
+            this.startFieldEl.createSpan({ cls: "dida-completed-date-field-label", text: this.plugin.t("completed.startDate") });
+            this.startFieldEl.createSpan({ cls: "dida-completed-date-field-value", text: this.extractDateValue(this.currentQuery.startDate) || this.plugin.t("completed.chooseDate") });
         }
         if (this.endFieldEl) {
             this.endFieldEl.empty();
-            this.endFieldEl.createSpan({ cls: "dida-completed-date-field-label", text: "结束日期" });
-            this.endFieldEl.createSpan({ cls: "dida-completed-date-field-value", text: this.extractDateValue(this.currentQuery.endDate) || "选择日期" });
+            this.endFieldEl.createSpan({ cls: "dida-completed-date-field-label", text: this.plugin.t("completed.endDate") });
+            this.endFieldEl.createSpan({ cls: "dida-completed-date-field-value", text: this.extractDateValue(this.currentQuery.endDate) || this.plugin.t("completed.chooseDate") });
         }
     }
 
@@ -104,7 +104,7 @@ export class CompletedTasksModal extends Modal {
                 this.renderDateFields();
             },
             fieldEl,
-            null,
+            this.plugin,
             null,
             { dateOnly: true }
         ).open();
@@ -112,16 +112,16 @@ export class CompletedTasksModal extends Modal {
 
     async runQuery() {
         if (!this.loadingEl) return;
-        this.loadingEl.textContent = "加载中...";
+        this.loadingEl.textContent = this.plugin.t("completed.loading");
         try {
             const query = this.buildQueryFromInputs();
             this.currentQuery = query;
             const tasks = await this.plugin.fetchCompletedTasks(query);
             await this.renderResults(tasks || []);
-            this.loadingEl.textContent = `共 ${tasks.length} 个任务`;
+            this.loadingEl.textContent = this.plugin.t("completed.totalCount", { count: tasks.length });
         } catch (e: any) {
             this.loadingEl.textContent = "";
-            new Notice(e?.message || "获取已完成任务失败");
+            new Notice(e?.message || this.plugin.t("completed.fetchFailed"));
         }
     }
 
@@ -129,7 +129,7 @@ export class CompletedTasksModal extends Modal {
         if (!this.resultEl) return;
         this.resultEl.empty();
         if (!Array.isArray(tasks) || tasks.length === 0) {
-            this.resultEl.createEl("p", { text: "当前筛选条件下没有已完成任务", cls: "dida-empty-state" });
+            this.resultEl.createEl("p", { text: this.plugin.t("completed.empty"), cls: "dida-empty-state" });
             return;
         }
 
@@ -150,23 +150,23 @@ export class CompletedTasksModal extends Modal {
                         const nextTasks = (this.plugin.settings.completedTasks || []).filter((item) => item.didaId !== task.didaId);
                         await this.renderResults(nextTasks);
                         if (this.loadingEl) {
-                            this.loadingEl.textContent = `共 ${nextTasks.length} 个任务`;
+                            this.loadingEl.textContent = this.plugin.t("completed.totalCount", { count: nextTasks.length });
                         }
                     } catch (e: any) {
-                        new Notice(e?.message || "恢复任务失败");
+                        new Notice(e?.message || this.plugin.t("completed.restoreFailed"));
                         checkbox.classList.remove("is-dimmed");
                     }
                 });
                 const titleEl = header.createEl("span", {
-                    text: task.title || "未命名任务",
+                    text: task.title || this.plugin.t("common.untitledTask"),
                     cls: "dida-completed-item-title"
                 });
 
                 // Meta: completion time + original due date
                 const meta = item.createDiv("dida-completed-item-meta");
                 const parts = [
-                    task.completedTime ? `完成于 ${this.extractDateValue(task.completedTime)}` : "",
-                    task.dueDate ? `原计划 ${this.extractDateValue(task.dueDate)}` : ""
+                    task.completedTime ? this.plugin.t("completed.completedAt", { time: this.extractDateValue(task.completedTime) }) : "",
+                    task.dueDate ? this.plugin.t("completed.originalPlan", { time: this.extractDateValue(task.dueDate) }) : ""
                 ].filter(Boolean);
                 meta.textContent = parts.join("  ·  ");
             });

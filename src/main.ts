@@ -1,4 +1,5 @@
-import { Editor, EditorPosition, getIconIds, MarkdownView, Menu, Modal, Notice, Platform, Plugin, setIcon, TFile, normalizePath } from 'obsidian';
+import { Editor, EditorPosition, getIconIds, getLanguage, MarkdownView, Menu, Modal, Notice, Platform, Plugin, setIcon, TFile, normalizePath } from 'obsidian';
+import { localizedProjectName, MessageKey, MessageParams, ResolvedLanguage, resolveUiLanguage, translate } from './i18n';
 import { DidaApiClient } from './api/DidaApiClient';
 import { RRuleParser } from './core/RRuleParser';
 import { createNativeTaskActionExtension } from './editor/NativeTaskActionExtension';
@@ -23,7 +24,7 @@ import { SyncFailureModal } from './modals/SyncFailureModal';
 import { SyncDeletionReviewModal } from './modals/SyncDeletionReviewModal';
 import { DidaSyncSettingTab } from './settings/DidaSyncSettingTab';
 import { buildCompletedTaskCacheSegment, fetchCompletedTasksByRange, filterCompletedTasksByQuery, getMonthlyCompletedTaskRanges, isCompletedTaskRangeCovered, mergeCompletedTaskCacheSegments, mergeCompletedTasks, normalizeCompletedTaskCacheSegments } from './completedTaskCache';
-import { CompletedTaskCacheSegment, CompletedTasksQuery, DEFAULT_SETTINGS, DidaNoteSyncRunSource, DidaProject, DidaSyncSettings, DidaTask, ProjectCatalogEntry, SyncResult, TaskScheduleInput } from './types';
+import { CompletedTaskCacheSegment, CompletedTasksQuery, DEFAULT_SETTINGS, DidaNoteSyncRunSource, DidaProject, DidaSyncSettings, DidaTask, INBOX_PROJECT_NAME, LOCAL_PROJECT_NAME, ProjectCatalogEntry, SyncResult, TaskScheduleInput } from './types';
 import { applyParsedLineToTask, formatTaskLine, formatTaskLineFromTask, makeLocalDateTime, parseTaskLine, TaskLineMetadata } from './taskLineFormat';
 import { normalizeDidaTaskCollapsedStates } from './taskTree';
 import { ensureTaskCompletedTime, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes } from './utils';
@@ -102,6 +103,24 @@ export default class DidaSyncPlugin extends Plugin {
     isReverseUpdating: boolean = false;
     _deletionReviewOpen: boolean = false;
 
+    /** Resolved UI language for the current session. Changes apply after a reload. */
+    getUiLanguage(): ResolvedLanguage {
+        const obsidianLanguage = typeof getLanguage === "function" ? getLanguage() : "en";
+        return resolveUiLanguage(this.settings?.uiLanguage, obsidianLanguage);
+    }
+
+    t(key: MessageKey, params?: MessageParams): string {
+        return translate(this.getUiLanguage(), key, params);
+    }
+
+    /**
+     * Display name for a project. Locally synthesized sentinels are translated for
+     * display; every other name is user/remote data and is returned untouched.
+     */
+    getProjectDisplayName(name: string): string {
+        return localizedProjectName(name, this.getUiLanguage());
+    }
+
     async onload() {
         await this.loadSettings();
         document.documentElement.style.setProperty("--dida-hour-height", `${this.settings.timeBlockHourHeight || 80}px`);
@@ -125,7 +144,8 @@ export default class DidaSyncPlugin extends Plugin {
                 this.syncManager.isSyncing = this.unifiedSyncEngine.isRunning;
                 this.refreshTaskView();
             },
-            onTimeout: () => this.updateStatusBar("同步超时")
+            onTimeout: () => this.updateStatusBar(this.t("status.syncTimeout")),
+            translate: (key, params) => this.t(key, params)
         });
         this.syncManager.attachUnifiedSyncEngine(this.unifiedSyncEngine);
         this.repeatTaskManager = new RepeatTaskManager(this);
@@ -138,7 +158,7 @@ export default class DidaSyncPlugin extends Plugin {
             const cursor = { line: lineNumber, ch: line.length };
             editor.setCursor(cursor);
             this.showTaskActionMenu(editor, cursor);
-        }, () => this.settings.enableNativeTaskSync));
+        }, () => this.settings.enableNativeTaskSync, (key, params) => this.t(key, params)));
 
         this.settingTab = new DidaSyncSettingTab(this.app, this);
         this.addSettingTab(this.settingTab);
@@ -149,17 +169,17 @@ export default class DidaSyncPlugin extends Plugin {
         this.addRibbonIcon('check-square', 'Didasync', () => {
             this.openTaskViewWithCache();
         });
-        this.timelineRibbonIconEl = this.addRibbonIcon("calendar-check", "滴答时间线视图", () => {
+        this.timelineRibbonIconEl = this.addRibbonIcon("calendar-check", this.t("cmd.ribbonTimeline"), () => {
             this.showTimelineView();
         });
         this.updateOptionalEntryVisibility();
-        this.addRibbonIcon("list-plus", "同步任务到笔记", () => {
+        this.addRibbonIcon("list-plus", this.t("cmd.ribbonNotes"), () => {
             this.showTaskNoteSyncModal();
         });
 
         this.addCommand({
             id: 'open-dida-task-view',
-            name: '打开滴答清单',
+            name: this.t('cmd.openTaskView'),
             callback: () => {
                 this.openTaskViewWithCache();
             }
@@ -167,7 +187,7 @@ export default class DidaSyncPlugin extends Plugin {
 
         this.addCommand({
             id: 'sync-dida-tasks',
-            name: '手动双向同步',
+            name: this.t('cmd.syncTasks'),
             callback: () => {
                 this.manualSync();
             }
@@ -175,7 +195,7 @@ export default class DidaSyncPlugin extends Plugin {
 
         this.addCommand({
             id: 'create-task-in-project',
-            name: '在项目中创建任务',
+            name: this.t('cmd.createTaskInProject'),
             callback: () => {
                 this.showAddTaskToProjectModal();
             }
@@ -183,7 +203,7 @@ export default class DidaSyncPlugin extends Plugin {
 
         this.addCommand({
             id: 'show-timeline-view',
-            name: '显示时间线日历视图',
+            name: this.t('cmd.showTimeline'),
             callback: () => {
                 this.showTimelineView();
             }
@@ -191,7 +211,7 @@ export default class DidaSyncPlugin extends Plugin {
 
         this.addCommand({
             id: 'sync-tasks-to-note',
-            name: '同步任务到笔记',
+            name: this.t('cmd.syncTasksToNote'),
             callback: () => {
                 this.showTaskNoteSyncModal();
             }
@@ -199,7 +219,7 @@ export default class DidaSyncPlugin extends Plugin {
 
         this.addCommand({
             id: 'insert-create-dida-task',
-            name: '插入/创建滴答任务',
+            name: this.t('cmd.insertCreateTask'),
             editorCallback: (editor: Editor) => {
                 const cursor = editor.getCursor();
                 this.showTaskSuggestions(editor, cursor);
@@ -208,7 +228,7 @@ export default class DidaSyncPlugin extends Plugin {
 
         this.addCommand({
             id: 'fetch-completed-dida-tasks',
-            name: '查看已完成任务',
+            name: this.t('cmd.viewCompleted'),
             callback: () => {
                 this.showCompletedTasksInline();
             }
@@ -216,7 +236,7 @@ export default class DidaSyncPlugin extends Plugin {
 
         this.addCommand({
             id: 'sync-dida-notes',
-            name: '同步滴答笔记到 Obsidian',
+            name: this.t('cmd.syncDidaNotes'),
             callback: () => {
                 this.syncDidaNotes();
             }
@@ -473,12 +493,12 @@ export default class DidaSyncPlugin extends Plugin {
     async exportMcpSkillDocument() {
         const normalizedPath = normalizePath((this.settings.mcpSkillNotePath || DEFAULT_SETTINGS.mcpSkillNotePath).trim());
         if (!normalizedPath) {
-            throw new Error("Skill 文档路径不能为空");
+            throw new Error(this.t("error.skillPathEmpty"));
         }
 
         const pathParts = normalizedPath.split("/").filter(Boolean);
         if (pathParts.length === 0) {
-            throw new Error("Skill 文档路径无效");
+            throw new Error(this.t("error.skillPathInvalid"));
         }
 
         const folderParts = pathParts.slice(0, -1);
@@ -591,9 +611,9 @@ export default class DidaSyncPlugin extends Plugin {
 
     getTaskDerivedProjects(): ProjectCatalogEntry[] {
         const map = new Map<string, ProjectCatalogEntry>();
-        map.set(this.getProjectIconConfigKey("inbox", "收集箱"), {
+        map.set(this.getProjectIconConfigKey("inbox", INBOX_PROJECT_NAME), {
             id: "inbox",
-            name: "收集箱",
+            name: INBOX_PROJECT_NAME,
             isArchived: false,
             isLocalOnly: false
         });
@@ -604,7 +624,7 @@ export default class DidaSyncPlugin extends Plugin {
             let id = task.projectId || "";
             if (!name && id) {
                 if (id === "inbox" || id.includes("inbox")) {
-                    name = "收集箱";
+                    name = INBOX_PROJECT_NAME;
                     id = "inbox";
                 } else {
                     name = id;
@@ -612,7 +632,7 @@ export default class DidaSyncPlugin extends Plugin {
             } else if (!id && name) {
                 id = task.projectId || "";
             }
-            name = name || "本地任务";
+            name = name || LOCAL_PROJECT_NAME;
             const key = this.getProjectIconConfigKey(id, name);
             if (!map.has(key)) {
                 map.set(key, {
@@ -679,10 +699,10 @@ export default class DidaSyncPlugin extends Plugin {
     }
 
     getProjectDeleteState(project: ProjectCatalogEntry) {
-        if (!project || !project.name) return { disabled: true, reason: "该项目暂时无法删除" };
-        if (this.isInboxProject(project.id, project.name)) return { disabled: true, reason: "收集箱不支持删除标题" };
-        if (this.getProjectTaskCount(project) > 0) return { disabled: true, reason: "项目内仍有任务，无法删除标题" };
-        return { disabled: false, reason: "删除项目标题" };
+        if (!project || !project.name) return { disabled: true, reason: this.t("project.deleteUnavailable") };
+        if (this.isInboxProject(project.id, project.name)) return { disabled: true, reason: this.t("project.inboxCannotDelete") };
+        if (this.getProjectTaskCount(project) > 0) return { disabled: true, reason: this.t("project.hasTasksCannotDelete") };
+        return { disabled: false, reason: this.t("project.deleteTitle") };
     }
 
     getProjectIconConfigKey(projectId: string, projectName: string) {
@@ -723,8 +743,8 @@ export default class DidaSyncPlugin extends Plugin {
         const inboxKeys = new Set<string>([
             "id:inbox",
             "name:inbox",
-            this.getProjectFilterKey("inbox", "收集箱"),
-            this.getProjectFilterKey("", "收集箱")
+            this.getProjectFilterKey("inbox", INBOX_PROJECT_NAME),
+            this.getProjectFilterKey("", INBOX_PROJECT_NAME)
         ]);
         this.getAvailableProjectConfigs().forEach((project) => {
             if (!this.isInboxProject(project.id, project.name)) return;
@@ -754,7 +774,7 @@ export default class DidaSyncPlugin extends Plugin {
     }
 
     resolveTaskProjectInfo(task: DidaTask) {
-        let projectName = "本地任务";
+        let projectName = LOCAL_PROJECT_NAME;
         let projectId = "local";
 
         if (task.projectName && task.projectId) {
@@ -762,7 +782,7 @@ export default class DidaSyncPlugin extends Plugin {
             projectId = task.projectId;
         } else if (task.projectId) {
             if (task.projectId === "inbox" || task.projectId.includes("inbox")) {
-                projectName = "收集箱";
+                projectName = INBOX_PROJECT_NAME;
                 projectId = "inbox";
             } else {
                 projectName = task.projectId;
@@ -783,13 +803,14 @@ export default class DidaSyncPlugin extends Plugin {
 
     // [Deprecated] 项目图标功能已移除，保留方法以保持向后兼容
     getProjectDefaultIconName(projectName: string) {
-        return projectName === "收集箱" ? "inbox" : "list-checks";
+        return projectName === INBOX_PROJECT_NAME ? "inbox" : "list-checks";
     }
 
     isInboxProject(projectId: string, projectName: string) {
         const id = typeof projectId === "string" ? projectId.trim().toLowerCase() : "";
         const name = typeof projectName === "string" ? projectName.trim().toLowerCase() : "";
-        return !(id !== "inbox" && !id.includes("inbox")) || name === "收集箱" || name === "inbox";
+        const normalizedInbox = INBOX_PROJECT_NAME.toLowerCase();
+        return !(id !== "inbox" && !id.includes("inbox")) || name === normalizedInbox || name === "inbox";
     }
 
     getProjectIconName(projectId: string, projectName: string) {
@@ -844,7 +865,7 @@ export default class DidaSyncPlugin extends Plugin {
         const menu = new Menu();
         menu.setUseNativeMenu(false);
         menu.addItem((item) => {
-            item.setTitle("设置项目图标")
+            item.setTitle(this.t("menu.setProjectIcon"))
                 .setIcon("folder")
                 .onClick(() => this.openProjectIconPicker(project));
         });
@@ -852,18 +873,18 @@ export default class DidaSyncPlugin extends Plugin {
         if (!isInbox) {
             const hidden = this.isProjectHidden(project.id, project.name);
             menu.addItem((item) => {
-                item.setTitle(hidden ? "在侧边栏显示" : "从侧边栏隐藏")
+                item.setTitle(hidden ? this.t("menu.showInSidebar") : this.t("menu.hideFromSidebar"))
                     .setIcon(hidden ? "eye" : "eye-off")
                     .onClick(() => this.setProjectHidden(project.id, project.name, !hidden));
             });
         }
         menu.addItem((item) => {
-            item.setTitle("新增项目标题")
+            item.setTitle(this.t("menu.addProjectTitle"))
                 .setIcon("plus")
                 .onClick(() => this.openProjectCreateModal());
         });
         menu.addItem((item) => {
-            item.setTitle(isInbox ? "收集箱不支持修改标题" : "修改项目标题")
+            item.setTitle(isInbox ? this.t("menu.inboxCannotRename") : this.t("menu.renameProjectTitle"))
                 .setIcon("pencil")
                 .setDisabled(isInbox)
                 .onClick(() => this.openProjectRenameModal(project));
@@ -879,7 +900,7 @@ export default class DidaSyncPlugin extends Plugin {
     }
 
     openProjectCreateModal() {
-        new ProjectCreateModal(this.app, (name) => {
+        new ProjectCreateModal(this.app, this, (name) => {
             this.createProjectInBackground(name);
         }).open();
     }
@@ -890,7 +911,7 @@ export default class DidaSyncPlugin extends Plugin {
             new Notice(state.reason);
             return;
         }
-        new ProjectDeleteConfirmModal(this.app, project, () => {
+        new ProjectDeleteConfirmModal(this.app, this, project, () => {
             this.deleteProjectInBackground(project);
         }).open();
     }
@@ -900,7 +921,7 @@ export default class DidaSyncPlugin extends Plugin {
             try {
                 await this.createProject(name);
             } catch (e: any) {
-                new Notice(e?.message || "新增项目标题失败");
+                new Notice(e?.message || this.t("project.createFailed"));
             }
         }, 0);
     }
@@ -908,10 +929,10 @@ export default class DidaSyncPlugin extends Plugin {
     async createProject(name: string) {
         const trimmed = (name || "").trim();
         if (!trimmed) {
-            new Notice("项目标题不能为空");
+            new Notice(this.t("error.projectNameEmpty"));
             return;
         }
-        if (this.findProjectByName(trimmed)) throw new Error("已存在同名项目标题");
+        if (this.findProjectByName(trimmed)) throw new Error(this.t("error.projectNameExists"));
         const project: ProjectCatalogEntry = {
             id: this.generateTemporaryProjectId(),
             name: trimmed,
@@ -921,7 +942,7 @@ export default class DidaSyncPlugin extends Plugin {
         await this.applyLocalProjectCreate(project);
         this.refreshTaskView();
         if (this.settings.accessToken) this.syncCreatedProjectInBackground(project);
-        else new Notice("项目标题已新增，当前未认证，暂未同步到滴答清单");
+        else new Notice(this.t("project.createdLocalOnly"));
     }
 
     syncCreatedProjectInBackground(project: ProjectCatalogEntry) {
@@ -929,9 +950,9 @@ export default class DidaSyncPlugin extends Plugin {
             try {
                 await this.ensureRemoteProjectExists(project);
                 this.refreshTaskView();
-                new Notice("项目标题已同步到滴答清单");
+                new Notice(this.t("project.synced"));
             } catch (e: any) {
-                new Notice(e?.message || "项目标题已新增，但同步到滴答清单失败");
+                new Notice(e?.message || this.t("project.createSyncFailed"));
             }
         }, 0);
     }
@@ -943,17 +964,17 @@ export default class DidaSyncPlugin extends Plugin {
         );
         if (!res.ok) {
             const text = await res.text().catch(() => "");
-            throw new Error(`创建滴答项目失败: ${res.status}${text ? " " + text : ""}`);
+            throw new Error(this.t("error.remoteProjectCreate", { status: res.status, detail: text ? " " + text : "" }));
         }
         const data = await res.json().catch(() => null);
         if (data && data.id) return data;
-        throw new Error("创建滴答项目失败: 未返回有效的项目ID");
+        throw new Error(this.t("error.remoteProjectCreateNoId"));
     }
 
     async ensureRemoteProjectExists(project: ProjectCatalogEntry) {
-        if (!project || !project.name) throw new Error("项目标题不能为空");
+        if (!project || !project.name) throw new Error(this.t("error.projectNameEmpty"));
         const known = (project.id && this.getProjectCatalog().find((item) => item.id === project.id)) || project;
-        if (!this.settings.accessToken) throw new Error("请先完成OAuth认证后再同步项目标题到滴答清单");
+        if (!this.settings.accessToken) throw new Error(this.t("error.oauthRequiredProjectSync"));
         if (!this._projectCreationPromises) this._projectCreationPromises = new Map();
         const key = known.id || `name:${known.name.trim().toLowerCase()}`;
         if (this._projectCreationPromises.has(key)) return this._projectCreationPromises.get(key);
@@ -1065,7 +1086,7 @@ export default class DidaSyncPlugin extends Plugin {
             try {
                 await this.deleteProject(project);
             } catch (e: any) {
-                new Notice(e?.message || "删除项目标题失败");
+                new Notice(e?.message || this.t("project.deleteFailed"));
             }
         }, 0);
     }
@@ -1092,15 +1113,15 @@ export default class DidaSyncPlugin extends Plugin {
                 this.refreshTaskView();
                 throw e;
             }
-            new Notice("项目标题已同步从滴答清单删除");
+            new Notice(this.t("project.remoteDeleted"));
             return;
         }
         if (!this.settings.accessToken && project.id && !isTemporary && !this.isInboxProject(project.id, project.name)) {
             await this.restoreDeletedProject(snapshot);
             this.refreshTaskView();
-            throw new Error("请先完成OAuth认证后再删除滴答项目标题");
+            throw new Error(this.t("error.oauthRequiredProjectDelete"));
         }
-        new Notice("项目标题已删除");
+        new Notice(this.t("project.deleted"));
     }
 
     async applyLocalProjectDelete(project: ProjectCatalogEntry) {
@@ -1139,13 +1160,13 @@ export default class DidaSyncPlugin extends Plugin {
         );
         if (!res.ok) {
             const text = await res.text().catch(() => "");
-            throw new Error(`删除滴答项目失败: ${res.status}${text ? " " + text : ""}`);
+            throw new Error(this.t("error.remoteProjectDelete", { status: res.status, detail: text ? " " + text : "" }));
         }
     }
 
     openProjectRenameModal(project: ProjectCatalogEntry) {
         if (!project || !project.name) return;
-        new ProjectRenameModal(this.app, project, (name) => {
+        new ProjectRenameModal(this.app, this, project, (name) => {
             this.renameProjectInBackground(project, name);
         }).open();
     }
@@ -1155,7 +1176,7 @@ export default class DidaSyncPlugin extends Plugin {
             try {
                 await this.renameProject(project, name);
             } catch (e: any) {
-                new Notice(e?.message || "修改项目标题失败");
+                new Notice(e?.message || this.t("project.renameFailed"));
             }
         }, 0);
     }
@@ -1164,7 +1185,7 @@ export default class DidaSyncPlugin extends Plugin {
         if (!project || !project.name) return;
         const next = (name || "").trim();
         if (!next) {
-            new Notice("项目标题不能为空");
+            new Notice(this.t("error.projectNameEmpty"));
             return;
         }
         if (next === project.name) return;
@@ -1178,7 +1199,7 @@ export default class DidaSyncPlugin extends Plugin {
             if (!this.settings.accessToken) {
                 await this.applyLocalProjectRename({ ...project, name: next }, previousName);
                 this.refreshTaskView();
-                throw new Error("请先完成OAuth认证后再修改滴答项目标题");
+                throw new Error(this.t("error.oauthRequiredProjectRename"));
             }
             try {
                 await this.renameRemoteProject(project.id, next);
@@ -1187,9 +1208,9 @@ export default class DidaSyncPlugin extends Plugin {
                 this.refreshTaskView();
                 throw e;
             }
-            new Notice("项目标题已同步到滴答清单");
+            new Notice(this.t("project.synced"));
         } else {
-            new Notice("项目标题已更新");
+            new Notice(this.t("project.updated"));
         }
     }
 
@@ -1200,7 +1221,7 @@ export default class DidaSyncPlugin extends Plugin {
         );
         if (!res.ok) {
             const text = await res.text().catch(() => "");
-            throw new Error(`修改滴答项目标题失败: ${res.status}${text ? " " + text : ""}`);
+            throw new Error(this.t("error.remoteProjectRename", { status: res.status, detail: text ? " " + text : "" }));
         }
     }
 
@@ -1250,11 +1271,11 @@ export default class DidaSyncPlugin extends Plugin {
             if (!entry || !entry.name) return;
             if (this.isNoteProjectLike(entry)) return;
             const isInbox = this.isInboxProject(entry.id, entry.name);
-            const key = isInbox ? this.getProjectIconConfigKey("inbox", "收集箱") : this.getProjectIconConfigKey(entry.id, entry.name);
+            const key = isInbox ? this.getProjectIconConfigKey("inbox", INBOX_PROJECT_NAME) : this.getProjectIconConfigKey(entry.id, entry.name);
             if (!map.has(key)) {
                 map.set(key, {
                     id: isInbox ? "inbox" : entry.id || "",
-                    name: isInbox ? "收集箱" : entry.name,
+                    name: isInbox ? INBOX_PROJECT_NAME : entry.name,
                     isArchived: entry.isArchived === true,
                     isLocalOnly: entry.isLocalOnly === true,
                     kind: entry.kind,
@@ -1263,7 +1284,7 @@ export default class DidaSyncPlugin extends Plugin {
             }
         });
         return Array.from(map.values()).sort((a, b) =>
-            a.name === "收集箱" ? -1 : b.name === "收集箱" ? 1 : a.name.localeCompare(b.name)
+            a.name === INBOX_PROJECT_NAME ? -1 : b.name === INBOX_PROJECT_NAME ? 1 : a.name.localeCompare(b.name)
         );
     }
 
@@ -1275,7 +1296,7 @@ export default class DidaSyncPlugin extends Plugin {
             if (!map.has(key)) map.set(key, entry);
         });
         return Array.from(map.values()).sort((a, b) =>
-            a.name === "收集箱" ? -1 : b.name === "收集箱" ? 1 : a.name.localeCompare(b.name)
+            a.name === INBOX_PROJECT_NAME ? -1 : b.name === INBOX_PROJECT_NAME ? 1 : a.name.localeCompare(b.name)
         );
     }
 
@@ -1289,10 +1310,10 @@ export default class DidaSyncPlugin extends Plugin {
         const normalizedId = this.normalizeProjectDisplayId(projectId);
         const project = this.getProjectCatalog().find((entry) => entry?.id === normalizedId) || this.findProjectById(normalizedId);
         const cached = (this.settings.projects || []).find((item) => this.areSameDidaProject(item.id, normalizedId));
-        const name = project?.name || cached?.name || fallbackName || (normalizedId === "inbox" ? "收集箱" : normalizedId);
+        const name = project?.name || cached?.name || fallbackName || (normalizedId === "inbox" ? INBOX_PROJECT_NAME : normalizedId);
         return {
             id: normalizedId,
-            name: normalizedId === "inbox" ? "收集箱" : name,
+            name: normalizedId === "inbox" ? INBOX_PROJECT_NAME : name,
             color: cached?.color,
             closed: cached?.closed,
             viewMode: cached?.viewMode,
@@ -1406,7 +1427,7 @@ export default class DidaSyncPlugin extends Plugin {
     }
 
     async ensureCompletedTasksRangeCached(range: { startDate: Date; endDate: Date }, projectIds?: string[], force = false) {
-        if (!this.settings.accessToken) throw new Error("请先进行OAuth认证");
+        if (!this.settings.accessToken) throw new Error(this.t("error.oauthRequired"));
         const monthlyRanges = getMonthlyCompletedTaskRanges(range);
         const fetchedResults = [];
         const truncatedSegments: CompletedTaskCacheSegment[] = [];
@@ -1467,7 +1488,7 @@ export default class DidaSyncPlugin extends Plugin {
     }
 
     async fetchCompletedTasks(query: CompletedTasksQuery = {}) {
-        if (!this.settings.accessToken) throw new Error("请先进行OAuth认证");
+        if (!this.settings.accessToken) throw new Error(this.t("error.oauthRequired"));
         const finalQuery = {
             ...this.buildDefaultCompletedTaskQuery(),
             ...(query || {})
@@ -1475,7 +1496,7 @@ export default class DidaSyncPlugin extends Plugin {
         const startDate = finalQuery.startDate ? new Date(finalQuery.startDate) : null;
         const endDate = finalQuery.endDate ? new Date(finalQuery.endDate) : null;
         if (!startDate || !endDate || Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
-            throw new Error("已完成任务查询缺少有效的时间范围");
+            throw new Error(this.t("error.completedRangeMissing"));
         }
 
         this.settings.completedTasksQuery = finalQuery;
@@ -1495,9 +1516,9 @@ export default class DidaSyncPlugin extends Plugin {
         this.refreshTaskView();
 
         if (truncatedSegments.length > 0) {
-            new Notice(`已获取 ${filteredTasks.length} 个已完成任务；部分单日记录达到 200 条上限，结果可能仍不完整`);
+            new Notice(this.t("notice.completedFetchedPartial", { count: filteredTasks.length }));
         } else {
-            new Notice(`已获取 ${filteredTasks.length} 个已完成任务`);
+            new Notice(this.t("notice.completedFetched", { count: filteredTasks.length }));
         }
 
         return filteredTasks;
@@ -1526,7 +1547,7 @@ export default class DidaSyncPlugin extends Plugin {
                 source: options.source || "manual"
             });
         } catch (error: any) {
-            if (!options.silent) new Notice(error?.message || "滴答笔记同步失败");
+            if (!options.silent) new Notice(error?.message || this.t("notice.noteSyncFailed"));
             throw error;
         }
     }
@@ -1540,7 +1561,7 @@ export default class DidaSyncPlugin extends Plugin {
             if (!(file instanceof TFile) || file.extension !== "md") return;
             menu.addItem((item) => {
                 item
-                    .setTitle("同步任务到笔记")
+                    .setTitle(this.t("cmd.syncTasksToNote"))
                     .setIcon("list-plus")
                     .onClick(() => this.showTaskNoteSyncModal(file));
             });
@@ -1551,7 +1572,7 @@ export default class DidaSyncPlugin extends Plugin {
             if (!(file instanceof TFile) || file.extension !== "md") return;
             menu.addItem((item) => {
                 item
-                    .setTitle("同步任务到笔记")
+                    .setTitle(this.t("cmd.syncTasksToNote"))
                     .setIcon("list-plus")
                     .onClick(() => this.showTaskNoteSyncModal(file));
             });
@@ -1559,8 +1580,8 @@ export default class DidaSyncPlugin extends Plugin {
     }
 
     async restoreCompletedTask(task: DidaTask) {
-        if (!task?.didaId) throw new Error("任务缺少滴答清单 ID，无法恢复");
-        if (!this.settings.accessToken) throw new Error("请先进行OAuth认证");
+        if (!task?.didaId) throw new Error(this.t("error.taskMissingDidaId"));
+        if (!this.settings.accessToken) throw new Error(this.t("error.oauthRequired"));
 
         const didaId = task.didaId;
         const existingIndex = this.settings.tasks.findIndex((item) => item.didaId === didaId);
@@ -1625,7 +1646,7 @@ export default class DidaSyncPlugin extends Plugin {
         this.removeCompletedTaskCache(task);
         await this.saveSettings();
         this.refreshTaskView();
-        new Notice("任务已恢复为未完成");
+        new Notice(this.t("notice.taskRestored"));
         return restoredTask;
     }
 
@@ -1684,11 +1705,11 @@ export default class DidaSyncPlugin extends Plugin {
     }
 
     async reparentTask(task: DidaTask, parentTask: DidaTask) {
-        if (!task || !parentTask) throw new Error("任务不存在");
+        if (!task || !parentTask) throw new Error(this.t("error.taskNotFound"));
         const taskKeys = new Set([task.didaId, task.id].filter(Boolean));
         const parentKeys = new Set([parentTask.didaId, parentTask.id].filter(Boolean));
-        if ([...taskKeys].some(key => parentKeys.has(key))) throw new Error("不能将任务拖到自身上");
-        if (this.isTaskDescendantOf(parentTask, task)) throw new Error("不能将任务拖到自己的子任务上");
+        if ([...taskKeys].some(key => parentKeys.has(key))) throw new Error(this.t("error.dropOnSelf"));
+        if (this.isTaskDescendantOf(parentTask, task)) throw new Error(this.t("error.dropOnDescendant"));
 
         const parentDisplay = this.resolveTaskProjectInfo(parentTask);
         return this.moveTaskPlacement(task, parentDisplay.id, parentTask);
@@ -1740,10 +1761,10 @@ export default class DidaSyncPlugin extends Plugin {
     private resolvePlacementTarget(targetProjectId: string, parentTask: DidaTask | null = null): TaskPlacementTarget {
         const target = this.findProjectById(targetProjectId);
         const targetName = parentTask ? this.resolveTaskProjectInfo(parentTask).name : target?.name;
-        if (!target && targetProjectId !== "inbox" && targetProjectId !== "local") throw new Error("目标项目不存在");
+        if (!target && targetProjectId !== "inbox" && targetProjectId !== "local") throw new Error(this.t("error.targetProjectMissing"));
 
         const parentId = parentTask ? (parentTask.didaId || parentTask.id) : null;
-        if (parentTask && !parentId) throw new Error("父任务无有效 ID");
+        if (parentTask && !parentId) throw new Error(this.t("error.parentNoId"));
 
         return {
             projectId: targetProjectId,
@@ -1760,16 +1781,16 @@ export default class DidaSyncPlugin extends Plugin {
         if (!isSyncedTask) return;
 
         if (parentTask && (!parentTask.didaId || this.resolveTaskProjectInfo(parentTask).isLocalOnly)) {
-            throw new Error("已同步任务不能挂到本地父任务下");
+            throw new Error(this.t("error.syncedTaskLocalParent"));
         }
 
         if (targetProject?.isLocalOnly || target.projectId === "local") {
-            throw new Error("已同步任务不能移动到本地项目");
+            throw new Error(this.t("error.syncedTaskLocalProject"));
         }
     }
 
     private async moveTaskPlacement(task: DidaTask, targetProjectId: string, parentTask: DidaTask | null = null) {
-        if (!task) throw new Error("任务不存在");
+        if (!task) throw new Error(this.t("error.taskNotFound"));
 
         const sourceProjectId = task.projectId || "inbox";
         const target = this.resolvePlacementTarget(targetProjectId, parentTask);
@@ -1844,7 +1865,7 @@ export default class DidaSyncPlugin extends Plugin {
         if (Platform.isMobile) return;
         if (!this.statusBarItem) {
             this.statusBarItem = this.addStatusBarItem();
-            this.updateStatusBar("未连接");
+            this.updateStatusBar(this.t("status.disconnected"));
             this.statusBarItem.addEventListener("click", () => {
                 if (this.settings.accessToken) {
                     if (this.lastSyncResult && this.lastSyncResult.outcome !== "success" && (this.lastSyncResult.failedDetails?.length || this.lastSyncResult.failedScopes?.length)) {
@@ -1864,10 +1885,10 @@ export default class DidaSyncPlugin extends Plugin {
             let displayText = text;
             try {
                 if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) {
-                    displayText = "离线中";
+                    displayText = this.t("status.offline");
                 }
             } catch (e) { }
-            this.statusBarItem.setText(`滴答清单: ${displayText}`);
+            this.statusBarItem.setText(this.t("status.bar", { text: displayText }));
         }
     }
 
@@ -1980,16 +2001,16 @@ export default class DidaSyncPlugin extends Plugin {
             this.settings.pendingSyncOperations = [];
             await this.saveSettings();
             this.refreshTaskView();
-            new Notice(`已清空 ${count} 个本地任务数据`);
+            new Notice(this.t("notice.resetCleared", { count }));
             setTimeout(async () => {
                 try {
-                    new Notice("正在从滴答清单云端获取最新数据...");
+                    new Notice(this.t("notice.fetchingRemote"));
                     const result = await this.syncManager.syncFromDidaList();
                     if (result.outcome === "success") {
                         const newCount = this.settings.tasks.length;
-                        new Notice(`重置完成！已从云端获取 ${newCount} 个任务数据`);
+                        new Notice(this.t("notice.resetDone", { count: newCount }));
                     } else {
-                        new Notice("远端任务拉取未完整完成，请检查网络后重试");
+                        new Notice(this.t("notice.remoteFetchIncomplete"));
                     }
                 } catch (e) { }
             }, 1000);
@@ -2007,7 +2028,7 @@ export default class DidaSyncPlugin extends Plugin {
             try {
                 if (this.settings.autoSync && this.settings.accessToken) {
                     this.setupAutoSync();
-                    this.updateStatusBar("已连接");
+                    this.updateStatusBar(this.t("status.connected"));
                     this.refreshTaskView();
                     void this.requestRecoverySync();
                 }
@@ -2016,7 +2037,7 @@ export default class DidaSyncPlugin extends Plugin {
         this._handleOfflineForAutoSync = () => {
             try {
                 this.clearAutoSync();
-                this.updateStatusBar("离线中");
+                this.updateStatusBar(this.t("status.offline"));
                 this.refreshTaskView();
             } catch (e) { }
         };
@@ -2118,7 +2139,7 @@ export default class DidaSyncPlugin extends Plugin {
 
     async checkPluginStatusAndNotify(): Promise<boolean> {
         if (!this.settings.accessToken) {
-            new Notice("请先在设置中配置Dida Sync插件");
+            new Notice(this.t("notice.configurePlugin"));
             return false;
         }
         return true;
@@ -2154,6 +2175,7 @@ export default class DidaSyncPlugin extends Plugin {
         this._deletionReviewOpen = true;
         new SyncDeletionReviewModal(
             this.app,
+            this,
             candidate,
             action => this.resolveSyncDeletionCandidate(candidate.id, action),
             () => { this._deletionReviewOpen = false; }
@@ -2304,7 +2326,7 @@ export default class DidaSyncPlugin extends Plugin {
         if (this.isPluginActivated) {
             try {
                 if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) {
-                    new Notice("当前处于离线状态，时间线视图不可用");
+                    new Notice(this.t("notice.timelineOffline"));
                     return;
                 }
             } catch (e) { }
@@ -2319,13 +2341,14 @@ export default class DidaSyncPlugin extends Plugin {
             await this.openTaskViewWithCache();
             const view = this.getTaskViewSafely();
             if (view) {
-                view.showAddTaskModal(projectName || "收集箱", projectId || "inbox", target || null);
+                view.showAddTaskModal(projectName || INBOX_PROJECT_NAME, projectId || "inbox", target || null);
                 return;
             }
             const projects = this.getAvailableProjectConfigs().map(entry => ({ id: entry.id, name: entry.name }));
             new AddTaskModal(this.app, async (title, project, schedule) => {
                 await this.addTask(title, project.name, project.id, true, null, schedule);
             }, {
+                plugin: this,
                 projects,
                 defaultProjectId: projectId || "inbox",
                 defaultDate: new Date(),
@@ -2337,7 +2360,7 @@ export default class DidaSyncPlugin extends Plugin {
     }
 
     // Task Management
-    async addTask(title: string, projectName: string = "收集箱", projectId: string = "inbox", shouldSync: boolean = true, dueDate: string | null = null, schedule?: TaskScheduleInput): Promise<DidaTask> {
+    async addTask(title: string, projectName: string = INBOX_PROJECT_NAME, projectId: string = "inbox", shouldSync: boolean = true, dueDate: string | null = null, schedule?: TaskScheduleInput): Promise<DidaTask> {
         const newTask: DidaTask = {
             id: Date.now().toString(),
             title: title,
@@ -2446,12 +2469,12 @@ export default class DidaSyncPlugin extends Plugin {
                         }
                     } catch (e) {
                         if (completedRepeatTask) {
-                            new Notice("重复任务已在本地标记完成，但同步到滴答清单失败，请稍后手动同步");
+                            new Notice(this.t("notice.repeatCompleteSyncFailed"));
                         }
                     }
                 }, 0);
             } else if (completedRepeatTask) {
-                new Notice("重复任务已在本地标记完成；未连接滴答清单，未自动生成下一次任务");
+                new Notice(this.t("notice.repeatCompleteOffline"));
             }
             this.refreshTaskView();
             if (task.didaId) {
@@ -2508,7 +2531,7 @@ export default class DidaSyncPlugin extends Plugin {
             } else if (code) {
                 this.apiClient.handleOAuthCallback(code);
             } else {
-                new Notice("OAuth回调未包含授权码");
+                new Notice(this.t("error.oauthCallbackNoCode"));
             }
         });
     }
@@ -2715,7 +2738,7 @@ export default class DidaSyncPlugin extends Plugin {
         }
 
         const after = line.substring(cursor.ch);
-        const linkText = `[@@${task.title || "无标题任务"}](obsidian://dida-task?didaId=${task.didaId})`;
+        const linkText = `[@@${task.title || this.t("common.untitledTask")}](obsidian://dida-task?didaId=${task.didaId})`;
         editor.setLine(cursor.line, before + linkText + after);
         editor.setCursor({ line: cursor.line, ch: before.length + linkText.length });
     }
@@ -2723,7 +2746,7 @@ export default class DidaSyncPlugin extends Plugin {
     linkTaskToLine(editor: Editor, cursor: EditorPosition, task: DidaTask) {
         const existingLine = editor.getLine(cursor.line);
         const existingParsed = parseTaskLine(existingLine);
-        const fullTaskLine = formatTaskLineFromTask(task, existingParsed?.indent || "", existingParsed?.quotePrefix || "");
+        const fullTaskLine = formatTaskLineFromTask(task, existingParsed?.indent || "", existingParsed?.quotePrefix || "", this.t("common.untitledTask"));
         editor.setLine(cursor.line, fullTaskLine);
         editor.setCursor({ line: cursor.line, ch: fullTaskLine.length });
     }
@@ -2793,18 +2816,18 @@ export default class DidaSyncPlugin extends Plugin {
                 const parsedLine = parseTaskLine(line);
                 if (parsedLine) {
                     if (!parsedLine.title) {
-                        new Notice("任务内容不能为空");
+                        new Notice(this.t("notice.taskContentEmpty"));
                         return;
                     }
                     if (parsedLine.didaId) {
-                        new Notice("任务已同步，无需再次同步", 3000);
+                        new Notice(this.t("notice.taskAlreadySynced"), 3000);
                         return;
                     }
                     let project = parsedLine.projectName
                         ? this.findProjectByName(parsedLine.projectName) || this.findProjectById(parsedLine.projectName)
                         : null;
                     if (parsedLine.projectName && !project) {
-                        new Notice(`未找到清单：${parsedLine.projectName}`);
+                        new Notice(this.t("error.projectNotFound", { name: parsedLine.projectName }));
                         return;
                     }
                     if (project?.isLocalOnly || (project && !project.id)) {
@@ -2820,7 +2843,7 @@ export default class DidaSyncPlugin extends Plugin {
                         projectId: project?.id || undefined
                     });
                     if (created && created.id) {
-                        editor.setLine(cursor.line, formatTaskLine(line, { didaId: created.id, disconnected: false }));
+                        editor.setLine(cursor.line, formatTaskLine(line, { didaId: created.id, disconnected: false }, this.t("common.untitledTask")));
                         const task: DidaTask = {
                             id: Date.now().toString(),
                             title: parsedLine.title,
@@ -2829,7 +2852,7 @@ export default class DidaSyncPlugin extends Plugin {
                             status: 0,
                             didaId: created.id,
                             projectId: created.projectId || project?.id || "inbox",
-                            projectName: project?.name || "收集箱",
+                            projectName: project?.name || INBOX_PROJECT_NAME,
                             createdAt: new Date().toISOString(),
                             updatedAt: new Date().toISOString(),
                             items: [],
@@ -2852,10 +2875,10 @@ export default class DidaSyncPlugin extends Plugin {
                         };
                         this.settings.tasks.push(task);
                         await this.saveSettings();
-                        new Notice("任务已同步到滴答清单", 3000);
+                        new Notice(this.t("notice.taskSynced"), 3000);
                         this.refreshTaskView();
                     } else {
-                        new Notice("同步失败，请重试");
+                        new Notice(this.t("notice.syncFailed"));
                     }
                     return;
                 }
@@ -2867,7 +2890,7 @@ export default class DidaSyncPlugin extends Plugin {
                         const linkRegex = /\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=([^)]+)\)/;
                         const linkMatch = content.match(linkRegex);
                         if (linkMatch) {
-                            new Notice("ℹ️ 任务已同步，无需再次同步", 3000);
+                            new Notice(this.t("notice.taskAlreadySyncedInfo"), 3000);
                         } else {
                             let title = content;
                             title = title.replace(/📅\s*\d{4}-\d{2}-\d{2}/g, "").trim();
@@ -2887,7 +2910,7 @@ export default class DidaSyncPlugin extends Plugin {
                                         status: 0,
                                         didaId: created.id,
                                         projectId: created.projectId || "inbox",
-                                        projectName: "收集箱",
+                                        projectName: INBOX_PROJECT_NAME,
                                         createdAt: new Date().toISOString(),
                                         updatedAt: new Date().toISOString(),
                                         items: [],
@@ -2909,28 +2932,28 @@ export default class DidaSyncPlugin extends Plugin {
                                     };
                                     this.settings.tasks.push(task);
                                     await this.saveSettings();
-                                    new Notice("✅ 任务已同步到滴答清单", 3000);
+                                    new Notice(this.t("notice.taskSyncedCheck"), 3000);
                                     this.refreshTaskView();
                                 } else {
-                                    new Notice("❌ 同步失败，请重试");
+                                    new Notice("❌ " + this.t("notice.syncFailed"));
                                 }
                             }
                         }
                     } else {
-                        new Notice("❌ 任务内容不能为空");
+                        new Notice(this.t("notice.taskContentEmptyCross"));
                     }
                 } else {
-                    new Notice("❌ 无法识别任务格式");
+                    new Notice(this.t("notice.taskFormatUnrecognizedCross"));
                 }
             } else {
-                new Notice("❌ 请先进行OAuth认证");
+                new Notice(this.t("notice.oauthRequiredCross"));
             }
         } catch (e: any) {
-            let msg = "同步失败";
-            if (e.message?.includes("401")) msg = "未经授权";
-            else if (e.message?.includes("403")) msg = "禁止访问";
-            else if (e.message?.includes("404")) msg = "未找到";
-            else if (e.message) msg = "同步失败: " + e.message;
+            let msg = this.t("notice.syncFailedShort");
+            if (e.message?.includes("401")) msg = this.t("error.unauthorized");
+            else if (e.message?.includes("403")) msg = this.t("error.forbidden");
+            else if (e.message?.includes("404")) msg = this.t("error.notFound");
+            else if (e.message) msg = this.t("notice.syncFailedDetail", { message: e.message });
             new Notice("❌ " + msg, 5000);
         }
     }
@@ -2957,7 +2980,7 @@ export default class DidaSyncPlugin extends Plugin {
             } as any);
             if (res.ok) return await res.json();
             const errText = await res.text();
-            throw new Error(`API调用失败: ${res.status} - ${errText}`);
+            throw new Error(this.t("error.apiCallFailed", { status: res.status, detail: errText }));
         } catch (e) {
             throw e;
         }
@@ -3022,17 +3045,17 @@ export default class DidaSyncPlugin extends Plugin {
                         this.refreshTaskView();
                     }
                 } else {
-                    new Notice("请先同步到滴答清单，再设置到期日期");
+                    new Notice(this.t("notice.syncBeforeDueDate"));
                 }
             } else {
-                new Notice("无法识别任务格式");
+                new Notice(this.t("notice.taskFormatUnrecognized"));
             }
         } catch (e: any) {
-            let msg = "添加日期失败";
-            if (e.message?.includes("401")) msg = "未经授权";
-            else if (e.message?.includes("403")) msg = "禁止连接";
-            else if (e.message?.includes("404")) msg = "未找到";
-            else if (e.message) msg = "添加日期失败: " + e.message;
+            let msg = this.t("notice.addDateFailed");
+            if (e.message?.includes("401")) msg = this.t("error.unauthorized");
+            else if (e.message?.includes("403")) msg = this.t("error.forbiddenConnection");
+            else if (e.message?.includes("404")) msg = this.t("error.notFound");
+            else if (e.message) msg = this.t("notice.addDateFailedDetail", { message: e.message });
             new Notice("❌ " + msg);
         }
     }
@@ -3040,10 +3063,10 @@ export default class DidaSyncPlugin extends Plugin {
     async updateTaskLineMetadata(editor: Editor, cursor: EditorPosition, line: string, metadata: TaskLineMetadata) {
         const parsed = parseTaskLine(line);
         if (!parsed) {
-            new Notice("无法识别任务格式");
+            new Notice(this.t("notice.taskFormatUnrecognized"));
             return;
         }
-        const newLine = formatTaskLine(line, metadata);
+        const newLine = formatTaskLine(line, metadata, this.t("common.untitledTask"));
         editor.setLine(cursor.line, newLine);
         const next = parseTaskLine(newLine);
         if (!next) return;
@@ -3120,11 +3143,11 @@ export default class DidaSyncPlugin extends Plugin {
                 this.refreshTaskView();
             }
         } catch (e: any) {
-            let msg = "同步日期变更失败";
-            if (e.message?.includes("401")) msg = "未经授权";
-            else if (e.message?.includes("403")) msg = "禁止连接";
-            else if (e.message?.includes("404")) msg = "未找到";
-            else if (e.message) msg = "同步日期变更失败: " + e.message;
+            let msg = this.t("notice.syncDateChangeFailed");
+            if (e.message?.includes("401")) msg = this.t("error.unauthorized");
+            else if (e.message?.includes("403")) msg = this.t("error.forbiddenConnection");
+            else if (e.message?.includes("404")) msg = this.t("error.notFound");
+            else if (e.message) msg = this.t("notice.syncDateChangeFailedDetail", { message: e.message });
             new Notice("❌ " + msg);
         }
     }
@@ -3138,14 +3161,14 @@ export default class DidaSyncPlugin extends Plugin {
                 await this.saveSettings();
                 await this.updateTaskInDidaList(task);
                 this.refreshTaskView();
-                new Notice("✅ 已同步标题变更到滴答清单");
+                new Notice(this.t("notice.titleSyncedCheck"));
             }
         } catch (e: any) {
-            let msg = "同步标题变更失败";
-            if (e.message?.includes("401")) msg = "未经授权";
-            else if (e.message?.includes("403")) msg = "禁止连接";
-            else if (e.message?.includes("404")) msg = "未找到";
-            else if (e.message) msg = "同步标题变更失败: " + e.message;
+            let msg = this.t("notice.titleSyncFailed");
+            if (e.message?.includes("401")) msg = this.t("error.unauthorized");
+            else if (e.message?.includes("403")) msg = this.t("error.forbiddenConnection");
+            else if (e.message?.includes("404")) msg = this.t("error.notFound");
+            else if (e.message) msg = this.t("notice.titleSyncFailedDetail", { message: e.message });
             new Notice("❌ " + msg);
         }
     }
@@ -3290,9 +3313,9 @@ export default class DidaSyncPlugin extends Plugin {
 
     showFileSelectionModal(files: TFile[], didaId: string) {
         const modal = new Modal(this.app);
-        modal.titleEl.setText("选择包含任务链接的文件");
+        modal.titleEl.setText(this.t("notice.chooseLinkFiles"));
         const container = modal.contentEl.createDiv();
-        container.createEl("p", { text: `找到 ${files.length} 个包含任务链接的文件:` });
+        container.createEl("p", { text: this.t("notice.foundLinkFiles", { count: files.length }) });
         const list = container.createDiv("file-selection-list");
         files.forEach(file => {
             const item = list.createDiv("file-item");
@@ -3337,7 +3360,7 @@ export default class DidaSyncPlugin extends Plugin {
                 this.showTaskDetailsInView(task);
             });
         } else {
-            new Notice("该任务已完成");
+            new Notice(this.t("notice.taskAlreadyCompleted"));
         }
     }
 
@@ -3483,7 +3506,7 @@ export default class DidaSyncPlugin extends Plugin {
                     this.syncTaskToDidaListInBackground(task);
                 }
             } else {
-                new Notice("任务标题不能为空");
+                new Notice(this.t("notice.taskTitleEmpty"));
             }
         }
     }

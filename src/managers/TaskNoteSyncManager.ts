@@ -108,13 +108,13 @@ export class TaskNoteSyncManager {
             await this.app.workspace.getLeaf(false).openFile(file);
         } catch (e) {
             console.error(e);
-            new Notice(`同步失败: ${e instanceof Error ? e.message : "未知错误"}`);
+            new Notice(this.plugin.t("taskNote.failedDetail", { message: e instanceof Error ? e.message : this.plugin.t("error.unknown") }));
         }
     }
 
     async syncDidaBlocksInFile(file: TFile) {
         if (!(file instanceof TFile) || file.extension !== "md") {
-            new Notice("请选择一个 Markdown 文件");
+            new Notice(this.plugin.t("taskNote.requireMarkdown"));
             return;
         }
 
@@ -126,7 +126,7 @@ export class TaskNoteSyncManager {
 
             const blocks = parseDidaSyncBlocks(lines, this.plugin.settings.taskNoteSyncTargetBlockHeader);
             if (blocks.length === 0) {
-                new Notice("当前文件未找到 didasync 块");
+                new Notice(this.plugin.t("taskNote.noBlocksInFile"));
                 return;
             }
 
@@ -150,7 +150,7 @@ export class TaskNoteSyncManager {
             }
 
             if (replacements.length === 0) {
-                new Notice("未同步 didasync 块，请检查配置格式");
+                new Notice(this.plugin.t("taskNote.noBlocksSynced"));
                 return;
             }
 
@@ -163,11 +163,11 @@ export class TaskNoteSyncManager {
             }
 
             await this.app.vault.modify(file, nextLines.join("\n") + (endsWithNewline ? "\n" : ""));
-            const skippedText = skippedCount > 0 ? `，跳过 ${skippedCount} 个配置错误的块` : "";
-            new Notice(`已同步 ${syncedCount} 个 didasync 块${skippedText}`);
+            const skippedText = skippedCount > 0 ? this.plugin.t("taskNote.blocksSkipped", { count: skippedCount }) : "";
+            new Notice(this.plugin.t("taskNote.blocksSynced", { count: syncedCount, skipped: skippedText }));
         } catch (e) {
             console.error(e);
-            new Notice(`同步 didasync 块失败: ${e instanceof Error ? e.message : "未知错误"}`);
+            new Notice(this.plugin.t("taskNote.blocksSyncFailed", { message: e instanceof Error ? e.message : this.plugin.t("error.unknown") }));
         }
     }
 
@@ -187,7 +187,7 @@ export class TaskNoteSyncManager {
             isCallout: block.isCallout,
             config: { ...block.config },
             rangeText: this.formatDidaBlockRange(block.range),
-            projectsText: block.config.projects.length > 0 ? block.config.projects.join(", ") : "全部清单",
+            projectsText: block.config.projects.length > 0 ? block.config.projects.join(", ") : this.plugin.t("settings.sync.scope.all"),
             error: block.error
         }));
 
@@ -263,7 +263,7 @@ export class TaskNoteSyncManager {
                 return this.selectTasksForRange([...normalized, ...localPending], range, normalizedProjectKeys, shouldFilterProjects);
             } catch (e) {
                 console.error(e);
-                new Notice("主动查询任务失败，已改用本地缓存任务");
+                new Notice(this.plugin.t("taskNote.remoteQueryFailed"));
             }
         }
         return this.selectTasksForRange(this.plugin.settings.tasks || [], range, normalizedProjectKeys, shouldFilterProjects);
@@ -361,11 +361,11 @@ export class TaskNoteSyncManager {
 
             if (tasksToAppend.length === 0) {
                 if (fetchedTasks.length === 0 && !parsed.hasExistingContent) {
-                    lines.splice(parsed.insertLineIndex, 0, `${taskPrefix}无待办任务`);
-                    new Notice("所选时间段无待办任务");
+                    lines.splice(parsed.insertLineIndex, 0, this.plugin.t("taskNote.noPendingTaskLine", { prefix: taskPrefix }));
+                    new Notice(this.plugin.t("taskNote.noPendingTasksInRange"));
                     return lines.join("\n");
                 }
-                new Notice("没有新任务需要同步");
+                new Notice(this.plugin.t("taskNote.noNewTasks"));
                 return lines.join("\n");
             }
 
@@ -375,7 +375,7 @@ export class TaskNoteSyncManager {
             } else {
                 this.insertGroupedTasks(lines, parsed, tasksToAppend, taskPrefix, isCallout);
             }
-            new Notice(`成功同步 ${tasksToAppend.length} 个新任务`);
+            new Notice(this.plugin.t("taskNote.syncedNewTasks", { count: tasksToAppend.length }));
             return lines.join("\n");
         });
     }
@@ -622,7 +622,7 @@ export class TaskNoteSyncManager {
     }
 
     formatTasks(tasks: DidaTask[], targetDate: string, prefix: string): string[] {
-        if (tasks.length === 0) return [`${prefix}无待办任务`];
+        if (tasks.length === 0) return [this.plugin.t("taskNote.noPendingTaskLine", { prefix })];
 
         return tasks.map(task => {
             const quotePrefix = prefix.trimStart().startsWith(">") ? "> " : "";
@@ -635,13 +635,13 @@ export class TaskNoteSyncManager {
                 isAllDay: task.isAllDay !== false,
                 status: task.status === 2 || task.completed === true ? 2 : 0
             };
-            return formatTaskLineFromTask(normalizedTask as DidaTask, "", quotePrefix);
+            return formatTaskLineFromTask(normalizedTask as DidaTask, "", quotePrefix, this.plugin.t("common.untitledTask"));
         });
     }
 
     formatDidaBlockTasks(tasks: DidaTask[], range: TaskNoteSyncRange, isCallout: boolean): string[] {
         const taskPrefix = isCallout ? "> - " : "- ";
-        if (tasks.length === 0) return [isCallout ? quoteCalloutLine("- [ ] 无待办任务") : "- [ ] 无待办任务"];
+        if (tasks.length === 0) return [isCallout ? quoteCalloutLine(this.plugin.t("taskNote.noPendingTaskCheckbox")) : this.plugin.t("taskNote.noPendingTaskCheckbox")];
         if (range.startDate === range.endDate) return this.formatTasks(tasks, range.startDate, taskPrefix);
         return this.formatGroupedTasks(tasks, taskPrefix, isCallout);
     }

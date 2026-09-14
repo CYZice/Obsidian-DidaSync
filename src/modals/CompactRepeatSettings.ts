@@ -1,7 +1,10 @@
 import { App } from "obsidian";
+import DidaSyncPlugin from "../main";
+import { formatWeekdayNarrow, MessageKey, MessageParams, ResolvedLanguage, translateDefault, weekdayDate } from "../i18n";
 
 export class CompactRepeatSettings {
     app: App;
+    plugin: DidaSyncPlugin | null;
     onRepeatSet: (rrule: string) => void;
     triggerElement: HTMLElement | null;
     repeatType: string;
@@ -13,8 +16,9 @@ export class CompactRepeatSettings {
     container: HTMLElement | null = null;
     escapeHandler: ((e: KeyboardEvent) => void) | null = null;
 
-    constructor(app: App, onRepeatSet: (rrule: string) => void, triggerElement: HTMLElement | null = null) {
+    constructor(app: App, plugin: DidaSyncPlugin | null, onRepeatSet: (rrule: string) => void, triggerElement: HTMLElement | null = null) {
         this.app = app;
+        this.plugin = plugin;
         this.onRepeatSet = onRepeatSet;
         this.triggerElement = triggerElement;
         this.repeatType = "none";
@@ -22,6 +26,14 @@ export class CompactRepeatSettings {
         this.weekDay = 0;
         this.monthDay = 1;
         this.month = 1;
+    }
+
+    private t(key: MessageKey, params?: MessageParams): string {
+        return this.plugin ? this.plugin.t(key, params) : translateDefault(key, params);
+    }
+
+    private getLanguage(): ResolvedLanguage {
+        return this.plugin ? this.plugin.getUiLanguage() : "en";
     }
 
     show() {
@@ -93,18 +105,18 @@ export class CompactRepeatSettings {
 
         const title = document.createElement("div");
         title.className = "dida-compact-repeat-title";
-        title.textContent = "重复设置";
+        title.textContent = this.t("repeat.title");
         this.container.appendChild(title);
 
         const typesDiv = document.createElement("div");
         typesDiv.className = "dida-compact-repeat-types";
 
         [
-            { value: "none", label: "不重复" },
-            { value: "daily", label: "每天" },
-            { value: "weekly", label: "每周" },
-            { value: "monthly", label: "每月" },
-            { value: "yearly", label: "每年" }
+            { value: "none", label: this.t("repeat.none") },
+            { value: "daily", label: this.t("repeat.daily") },
+            { value: "weekly", label: this.t("repeat.weekly") },
+            { value: "monthly", label: this.t("repeat.monthly") },
+            { value: "yearly", label: this.t("repeat.yearly") }
         ].forEach((item) => {
             const btn = document.createElement("button");
             btn.className = "dida-compact-repeat-type-btn";
@@ -122,12 +134,12 @@ export class CompactRepeatSettings {
 
         const cancelBtn = document.createElement("button");
         cancelBtn.className = "dida-compact-repeat-btn cancel";
-        cancelBtn.textContent = "取消";
+        cancelBtn.textContent = this.t("common.cancel");
         cancelBtn.onclick = () => this.hide();
 
         const confirmBtn = document.createElement("button");
         confirmBtn.className = "dida-compact-repeat-btn confirm";
-        confirmBtn.textContent = "确认";
+        confirmBtn.textContent = this.t("common.confirm");
         confirmBtn.onclick = () => this.confirm();
 
         btnsDiv.append(cancelBtn, confirmBtn);
@@ -164,7 +176,7 @@ export class CompactRepeatSettings {
     renderDailyDetails(container: HTMLElement) {
         const div = document.createElement("div");
         div.className = "dida-compact-interval-container";
-        div.createEl("label", { text: "每" });
+        div.createEl("label", { text: this.t("repeat.every") });
         const input = div.createEl("input", {
             type: "number",
             cls: "interval-input"
@@ -172,7 +184,7 @@ export class CompactRepeatSettings {
         input.min = "1";
         input.max = "365";
         input.value = String(this.interval);
-        div.createEl("label", { text: "天" });
+        div.createEl("label", { text: this.t("repeat.dailySuffix") });
         input.onchange = () => {
             this.interval = parseInt(input.value, 10) || 1;
         };
@@ -182,7 +194,7 @@ export class CompactRepeatSettings {
     renderWeeklyDetails(container: HTMLElement) {
         const div = document.createElement("div");
         div.className = "dida-compact-interval-container";
-        div.createEl("label", { text: "每" });
+        div.createEl("label", { text: this.t("repeat.every") });
         const input = div.createEl("input", {
             type: "number",
             cls: "interval-input"
@@ -190,7 +202,7 @@ export class CompactRepeatSettings {
         input.min = "1";
         input.max = "52";
         input.value = String(this.interval);
-        div.createEl("label", { text: "周" });
+        div.createEl("label", { text: this.t("repeat.weeklySuffix") });
         input.onchange = () => {
             this.interval = parseInt(input.value, 10) || 1;
         };
@@ -198,10 +210,11 @@ export class CompactRepeatSettings {
 
         const weekDiv = document.createElement("div");
         weekDiv.className = "dida-compact-weekday-container";
-        ["日", "一", "二", "三", "四", "五", "六"].forEach((day, index) => {
+        const language = this.getLanguage();
+        for (let index = 0; index < 7; index++) {
             const btn = document.createElement("button");
             btn.className = "dida-compact-weekday-btn";
-            btn.textContent = day;
+            btn.textContent = formatWeekdayNarrow(weekdayDate(index), language);
             if (index === this.weekDay) btn.classList.add("active");
             btn.onclick = () => {
                 weekDiv.querySelectorAll(".dida-compact-weekday-btn").forEach((item) => item.classList.remove("active"));
@@ -209,14 +222,14 @@ export class CompactRepeatSettings {
                 this.weekDay = index;
             };
             weekDiv.appendChild(btn);
-        });
+        }
         container.appendChild(weekDiv);
     }
 
     renderMonthlyDetails(container: HTMLElement) {
         const div = document.createElement("div");
         div.className = "dida-compact-interval-container";
-        div.createEl("label", { text: "每" });
+        div.createEl("label", { text: this.t("repeat.every") });
         const intervalInput = div.createEl("input", {
             type: "number",
             cls: "interval-input"
@@ -224,7 +237,7 @@ export class CompactRepeatSettings {
         intervalInput.min = "1";
         intervalInput.max = "12";
         intervalInput.value = String(this.interval);
-        div.createEl("label", { text: "月的第" });
+        div.createEl("label", { text: this.t("repeat.compactMonthlyMid") });
         const dayInput = div.createEl("input", {
             type: "number",
             cls: "day-input"
@@ -232,7 +245,7 @@ export class CompactRepeatSettings {
         dayInput.min = "1";
         dayInput.max = "31";
         dayInput.value = String(this.monthDay);
-        div.createEl("label", { text: "日" });
+        div.createEl("label", { text: this.t("repeat.compactDayTail") });
         intervalInput.onchange = () => {
             this.interval = parseInt(intervalInput.value, 10) || 1;
         };
@@ -245,7 +258,7 @@ export class CompactRepeatSettings {
     renderYearlyDetails(container: HTMLElement) {
         const div = document.createElement("div");
         div.className = "dida-compact-interval-container";
-        div.createEl("label", { text: "每" });
+        div.createEl("label", { text: this.t("repeat.every") });
         const intervalInput = div.createEl("input", {
             type: "number",
             cls: "interval-input"
@@ -253,7 +266,7 @@ export class CompactRepeatSettings {
         intervalInput.min = "1";
         intervalInput.max = "10";
         intervalInput.value = String(this.interval);
-        div.createEl("label", { text: "年的" });
+        div.createEl("label", { text: this.t("repeat.compactYearlyMid") });
         const monthInput = div.createEl("input", {
             type: "number",
             cls: "month-input"
@@ -261,7 +274,7 @@ export class CompactRepeatSettings {
         monthInput.min = "1";
         monthInput.max = "12";
         monthInput.value = String(this.month);
-        div.createEl("label", { text: "月" });
+        div.createEl("label", { text: this.t("repeat.compactMonthMid") });
         const dayInput = div.createEl("input", {
             type: "number",
             cls: "day-input"
@@ -269,7 +282,7 @@ export class CompactRepeatSettings {
         dayInput.min = "1";
         dayInput.max = "31";
         dayInput.value = String(this.monthDay);
-        div.createEl("label", { text: "日" });
+        div.createEl("label", { text: this.t("repeat.compactDayTail") });
 
         intervalInput.onchange = () => {
             this.interval = parseInt(intervalInput.value, 10) || 1;

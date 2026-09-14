@@ -1,4 +1,5 @@
 import { DidaNoteSyncSummary, SyncFailureDetail, SyncResult, SyncRunRequest, SyncRunScope, SyncScopeResult } from "../types";
+import { MessageKey, MessageParams, translateDefault } from "../i18n";
 import { SyncRunContext, SyncRunCoordinator } from "./SyncRunCoordinator";
 
 interface UnifiedTaskScope {
@@ -16,6 +17,7 @@ interface UnifiedSyncEngineOptions {
     scanLocalDeletions?(): Promise<number>;
     onStateChange?(): void;
     onTimeout?(error: Error): void;
+    translate?(key: MessageKey, params?: MessageParams): string;
 }
 
 const SYNC_RUN_TIMEOUT_MS = 90000;
@@ -35,8 +37,14 @@ export class UnifiedSyncEngine {
             mergeResults: (current, next) => this.mergeResults(current, next),
             runOnce: context => this.runOnce(context),
             onStateChange: () => this.options.onStateChange?.(),
-            onTimeout: error => this.options.onTimeout?.(error)
+            onTimeout: error => this.options.onTimeout?.(error),
+            translate: (key, params) => this.t(key, params)
         });
+    }
+
+    private t(key: MessageKey, params?: MessageParams): string {
+        if (this.options.translate) return this.options.translate(key, params);
+        return translateDefault(key, params);
     }
 
     get isRunning() {
@@ -65,7 +73,7 @@ export class UnifiedSyncEngine {
         let taskResult = this.emptyResult("skipped");
         let noteSummary: DidaNoteSyncSummary | undefined;
 
-        context.setPhase("scanning", "正在扫描本地修改");
+        context.setPhase("scanning", this.t("phase.scanning"));
         await this.options.scanLocalDeletions?.();
         if (request.scope === "all" || request.scope === "tasks") {
             try {
@@ -86,7 +94,7 @@ export class UnifiedSyncEngine {
         }
 
         if ((request.scope === "all" || request.scope === "notes") && this.options.shouldRunNotes()) {
-            context.setPhase("fetching", "正在拉取云端笔记");
+            context.setPhase("fetching", this.t("phase.fetchingNotes"));
             try {
                 noteSummary = await this.options.noteScope.syncNow({
                     silent: request.silent === true,
@@ -117,8 +125,8 @@ export class UnifiedSyncEngine {
             ...(noteScope && (noteScope.outcome === "failed" || noteScope.outcome === "partial") ? ["notes"] : [])
         ];
         const outcome = this.resolveOutcome(scopeResults);
-        context.setPhase("verifying", "正在核对同步结果");
-        context.setPhase(outcome === "failed" ? "failed" : "completed", outcome === "success" ? "同步完成" : outcome === "partial" ? "部分同步失败" : "同步失败");
+        context.setPhase("verifying", this.t("phase.verifying"));
+        context.setPhase(outcome === "failed" ? "failed" : "completed", outcome === "success" ? this.t("status.syncDone") : outcome === "partial" ? this.t("status.partialFailure") : this.t("notice.syncFailedShort"));
         return {
             outcome,
             uploaded: taskResult.uploaded + (noteSummary?.pushed || 0),

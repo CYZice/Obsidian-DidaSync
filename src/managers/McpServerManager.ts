@@ -2,7 +2,7 @@ import * as crypto from "crypto";
 import * as http from "http";
 import { Notice } from "obsidian";
 import DidaSyncPlugin from "../main";
-import { DidaProject, DidaTask } from "../types";
+import { DidaProject, DidaTask, INBOX_PROJECT_NAME } from "../types";
 
 type JsonRpcId = string | number | null;
 type JsonRpcRequest = {
@@ -259,7 +259,7 @@ export class McpServerManager {
 
         const task = await this.plugin.addTask(
             title,
-            args?.projectName || "收集箱",
+            args?.projectName || INBOX_PROJECT_NAME,
             args?.projectId || "inbox",
             sync !== false,
             args?.dueDate || null
@@ -376,13 +376,13 @@ export class McpServerManager {
 
     private async syncNow() {
         const result = await this.plugin.manualSync();
-        if (result?.outcome === "failed") throw new Error("任务同步失败");
+        if (result?.outcome === "failed") throw new Error(this.plugin.t("error.taskSyncFailed"));
         return { taskCount: this.plugin.settings.tasks.length, sync: result };
     }
 
     private listProjects(): DidaProject[] {
         const projects = new Map<string, DidaProject>();
-        projects.set("inbox", { id: "inbox", name: "收集箱" });
+        projects.set("inbox", { id: "inbox", name: INBOX_PROJECT_NAME });
         for (const project of this.plugin.settings.projects || []) {
             if (project.id) projects.set(project.id, project);
         }
@@ -391,7 +391,7 @@ export class McpServerManager {
             if (!projects.has(id)) {
                 projects.set(id, {
                     id,
-                    name: task.projectName || (id === "inbox" ? "收集箱" : id),
+                    name: task.projectName || (id === "inbox" ? INBOX_PROJECT_NAME : id),
                     color: task.projectColor,
                     closed: task.projectClosed,
                     viewMode: task.projectViewMode,
@@ -418,7 +418,7 @@ export class McpServerManager {
             const existing = projects.get(key);
             projects.set(key, {
                 id: id || existing?.id || "",
-                name: name || existing?.name || (id === "inbox" ? "收集箱" : id),
+                name: name || existing?.name || (id === "inbox" ? INBOX_PROJECT_NAME : id),
                 color: project.color ?? existing?.color,
                 sortOrder: project.sortOrder ?? existing?.sortOrder,
                 closed: project.closed ?? existing?.closed,
@@ -442,7 +442,7 @@ export class McpServerManager {
         for (const task of this.plugin.settings.tasks || []) {
             upsertProject({
                 id: task.projectId || "inbox",
-                name: task.projectName || (task.projectId === "inbox" ? "收集箱" : task.projectId),
+                name: task.projectName || (task.projectId === "inbox" ? INBOX_PROJECT_NAME : task.projectId),
                 color: task.projectColor,
                 closed: task.projectClosed,
                 viewMode: task.projectViewMode,
@@ -452,7 +452,7 @@ export class McpServerManager {
         }
 
         const hasInbox = Array.from(projects.values()).some((project) => this.plugin.isInboxProject(project.id, project.name));
-        if (!hasInbox) upsertProject({ id: "inbox", name: "收集箱" });
+        if (!hasInbox) upsertProject({ id: "inbox", name: INBOX_PROJECT_NAME });
 
         return Array.from(projects.values());
     }
@@ -895,6 +895,6 @@ export class McpServerManager {
     }
 
     notifyStartupError(error: any) {
-        new Notice("DidaSync MCP服务启动失败: " + (error?.message || error));
+        new Notice(this.plugin.t("error.mcpStartFailed", { message: error?.message || error }));
     }
 }

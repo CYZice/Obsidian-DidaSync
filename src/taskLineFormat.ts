@@ -98,7 +98,7 @@ export function parseTaskLine(line: string): ParsedTaskLine | null {
     return { quotePrefix, indent, checkbox, title, didaId, startDate, dueDate, isAllDay, priority, repeatFlag, disconnected, projectName };
 }
 
-export function formatTaskLine(line: string, metadata: TaskLineMetadata): string {
+export function formatTaskLine(line: string, metadata: TaskLineMetadata, untitledLabel: string = "无标题任务"): string {
     const parsed = parseTaskLine(line);
     if (!parsed) return line;
     return buildTaskLine({
@@ -114,15 +114,15 @@ export function formatTaskLine(line: string, metadata: TaskLineMetadata): string
         repeatFlag: metadata.repeatFlag !== undefined ? metadata.repeatFlag : parsed.repeatFlag,
         disconnected: metadata.disconnected !== undefined ? metadata.disconnected : parsed.disconnected,
         projectName: metadata.projectName !== undefined ? metadata.projectName : parsed.projectName
-    });
+    }, untitledLabel);
 }
 
-export function formatTaskLineFromTask(task: DidaTask, indent: string = "", quotePrefix: string = ""): string {
+export function formatTaskLineFromTask(task: DidaTask, indent: string = "", quotePrefix: string = "", untitledLabel: string = "无标题任务"): string {
     return buildTaskLine({
         quotePrefix,
         indent,
         checkbox: task.status === 2 ? "x" : " ",
-        title: (task.title || "").replace(/\r?\n/g, " ").trim() || "无标题任务",
+        title: (task.title || "").replace(/\r?\n/g, " ").trim() || untitledLabel,
         didaId: task.didaId || task.id || null,
         startDate: task.startDate || null,
         dueDate: task.dueDate || null,
@@ -131,7 +131,7 @@ export function formatTaskLineFromTask(task: DidaTask, indent: string = "", quot
         repeatFlag: task.repeatFlag || null,
         disconnected: false,
         projectName: task.projectName || null
-    });
+    }, untitledLabel);
 }
 
 export function applyParsedLineToTask(task: DidaTask, parsed: ParsedTaskLine) {
@@ -156,9 +156,9 @@ export function formatDateOnly(value: string | null | undefined): string | null 
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-function buildTaskLine(parts: ParsedTaskLine): string {
+function buildTaskLine(parts: ParsedTaskLine, untitledLabel: string = "无标题任务"): string {
     const checkbox = parts.checkbox.toLowerCase() === "x" ? "x" : " ";
-    const title = (parts.title || "").trim() || "无标题任务";
+    const title = (parts.title || "").trim() || untitledLabel;
     const link = parts.didaId ? ` [🔗Dida](obsidian://dida-task?didaId=${parts.didaId})` : "";
     const disconnected = parts.disconnected && !parts.didaId ? " 🗑️" : "";
     const project = parts.projectName ? ` ^[${parts.projectName}]` : "";

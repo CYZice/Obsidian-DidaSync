@@ -15,7 +15,7 @@ export class DidaTimeBlockView extends TaskView {
     }
 
     getDisplayText() {
-        return "滴答时间线视图";
+        return this.plugin.t("view.timeBlock.displayText");
     }
 
     getIcon() {

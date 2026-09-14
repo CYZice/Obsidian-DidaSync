@@ -1,6 +1,9 @@
 import { App, Modal } from "obsidian";
+import DidaSyncPlugin from "../main";
+import { formatMonthName, formatWeekdayLong, ResolvedLanguage, weekdayDate } from "../i18n";
 
 export class RepeatSettingsModal extends Modal {
+    plugin: DidaSyncPlugin;
     onRepeatSet: (rrule: string) => void;
     repeatType: string = "none";
     interval: number = 1;
@@ -11,8 +14,9 @@ export class RepeatSettingsModal extends Modal {
     yearWeekNumber: number = 1;
     customRRule: HTMLTextAreaElement | null = null;
 
-    constructor(app: App, onRepeatSet: (rrule: string) => void) {
+    constructor(app: App, plugin: DidaSyncPlugin, onRepeatSet: (rrule: string) => void) {
         super(app);
+        this.plugin = plugin;
         this.onRepeatSet = onRepeatSet;
     }
 
@@ -20,31 +24,31 @@ export class RepeatSettingsModal extends Modal {
         const { contentEl } = this;
         contentEl.empty();
         contentEl.addClass("dida-repeat-settings-modal");
-        contentEl.createEl("h2", { text: "重复设置" });
-        
+        contentEl.createEl("h2", { text: this.plugin.t("repeat.title") });
+
         const typeContainer = contentEl.createDiv("dida-repeat-type-container");
-        typeContainer.createEl("h3", { text: "重复类型" });
-        
+        typeContainer.createEl("h3", { text: this.plugin.t("repeat.typeHeading") });
+
         let select = typeContainer.createEl("select", { cls: "dida-repeat-type-select" });
-        
+
         [{
             value: "none",
-            label: "不重复"
+            label: this.plugin.t("repeat.none")
         }, {
             value: "daily",
-            label: "每天"
+            label: this.plugin.t("repeat.daily")
         }, {
             value: "weekly",
-            label: "每周"
+            label: this.plugin.t("repeat.weekly")
         }, {
             value: "monthly",
-            label: "每月"
+            label: this.plugin.t("repeat.monthly")
         }, {
             value: "yearly",
-            label: "每年"
+            label: this.plugin.t("repeat.yearly")
         }, {
             value: "custom",
-            label: "自定义"
+            label: this.plugin.t("repeat.custom")
         }].forEach(t => {
             var opt = select.createEl("option", {
                 value: t.value,
@@ -63,8 +67,8 @@ export class RepeatSettingsModal extends Modal {
         this.renderDetails(detailsContainer);
         
         const buttons = contentEl.createDiv("dida-repeat-buttons");
-        buttons.createEl("button", { text: "取消" }).onclick = () => this.close();
-        buttons.createEl("button", { text: "确认", cls: "mod-cta" }).onclick = () => {
+        buttons.createEl("button", { text: this.plugin.t("common.cancel") }).onclick = () => this.close();
+        buttons.createEl("button", { text: this.plugin.t("common.confirm"), cls: "mod-cta" }).onclick = () => {
             var rrule = this.generateRRULE();
             this.onRepeatSet(rrule);
             this.close();
@@ -84,9 +88,9 @@ export class RepeatSettingsModal extends Modal {
 
     renderDailySettings(container: HTMLElement) {
         const settings = container.createDiv("dida-daily-settings");
-        settings.createEl("h4", { text: "每日重复设置" });
+        settings.createEl("h4", { text: this.plugin.t("repeat.dailyHeading") });
         const intervalContainer = settings.createDiv("dida-interval-container");
-        intervalContainer.createEl("span", { text: "每" });
+        intervalContainer.createEl("span", { text: this.plugin.t("repeat.every") });
         let input = intervalContainer.createEl("input", {
             type: "number",
             value: this.interval.toString(),
@@ -97,14 +101,14 @@ export class RepeatSettingsModal extends Modal {
         input.onchange = () => {
             this.interval = parseInt(input.value) || 1;
         };
-        intervalContainer.createEl("span", { text: "天重复一次" });
+        intervalContainer.createEl("span", { text: this.plugin.t("repeat.dailySuffix") });
     }
 
     renderWeeklySettings(container: HTMLElement) {
         const settings = container.createDiv("dida-weekly-settings");
-        settings.createEl("h4", { text: "每周重复设置" });
+        settings.createEl("h4", { text: this.plugin.t("repeat.weeklyHeading") });
         const intervalContainer = settings.createDiv("dida-interval-container");
-        intervalContainer.createEl("span", { text: "每" });
+        intervalContainer.createEl("span", { text: this.plugin.t("repeat.every") });
         let input = intervalContainer.createEl("input", {
             type: "number",
             value: this.interval.toString(),
@@ -115,15 +119,15 @@ export class RepeatSettingsModal extends Modal {
         input.onchange = () => {
             this.interval = parseInt(input.value) || 1;
         };
-        intervalContainer.createEl("span", { text: "周重复一次" });
-        
+        intervalContainer.createEl("span", { text: this.plugin.t("repeat.weeklySuffix") });
+
         const weekdayContainer = settings.createDiv("dida-weekday-container");
-        weekdayContainer.createEl("span", { text: "在星期：" });
+        weekdayContainer.createEl("span", { text: this.plugin.t("repeat.onWeekday") });
         let select = weekdayContainer.createEl("select", { cls: "dida-weekday-select" });
-        ["日", "一", "二", "三", "四", "五", "六"].forEach((t, e) => {
+        this.getWeekdayLabels().forEach((label, e) => {
             let opt = select.createEl("option", {
                 value: e.toString(),
-                text: "星期" + t
+                text: label
             });
             if (e === this.weekDay) opt.selected = true;
         });
@@ -134,9 +138,9 @@ export class RepeatSettingsModal extends Modal {
 
     renderMonthlySettings(container: HTMLElement) {
         const settings = container.createDiv("dida-monthly-settings");
-        settings.createEl("h4", { text: "每月重复设置" });
+        settings.createEl("h4", { text: this.plugin.t("repeat.monthlyHeading") });
         const intervalContainer = settings.createDiv("dida-interval-container");
-        intervalContainer.createEl("span", { text: "每" });
+        intervalContainer.createEl("span", { text: this.plugin.t("repeat.every") });
         let input = intervalContainer.createEl("input", {
             type: "number",
             value: this.interval.toString(),
@@ -147,10 +151,10 @@ export class RepeatSettingsModal extends Modal {
         input.onchange = () => {
             this.interval = parseInt(input.value) || 1;
         };
-        intervalContainer.createEl("span", { text: "月重复一次" });
-        
+        intervalContainer.createEl("span", { text: this.plugin.t("repeat.monthlySuffix") });
+
         const monthdayContainer = settings.createDiv("dida-monthday-container");
-        monthdayContainer.createEl("span", { text: "在每月第" });
+        monthdayContainer.createEl("span", { text: this.plugin.t("repeat.onMonthDay") });
         let dayInput = monthdayContainer.createEl("input", {
             type: "number",
             value: this.monthDay.toString(),
@@ -161,14 +165,14 @@ export class RepeatSettingsModal extends Modal {
         dayInput.onchange = () => {
             this.monthDay = parseInt(dayInput.value) || 1;
         };
-        monthdayContainer.createEl("span", { text: "日" });
+        monthdayContainer.createEl("span", { text: this.plugin.t("repeat.monthDaySuffix") });
     }
 
     renderYearlySettings(container: HTMLElement) {
         const settings = container.createDiv("dida-yearly-settings");
-        settings.createEl("h4", { text: "每年重复设置" });
+        settings.createEl("h4", { text: this.plugin.t("repeat.yearlyHeading") });
         const intervalContainer = settings.createDiv("dida-interval-container");
-        intervalContainer.createEl("span", { text: "每" });
+        intervalContainer.createEl("span", { text: this.plugin.t("repeat.every") });
         let input = intervalContainer.createEl("input", {
             type: "number",
             value: this.interval.toString(),
@@ -179,15 +183,15 @@ export class RepeatSettingsModal extends Modal {
         input.onchange = () => {
             this.interval = parseInt(input.value) || 1;
         };
-        intervalContainer.createEl("span", { text: "年重复一次" });
-        
+        intervalContainer.createEl("span", { text: this.plugin.t("repeat.yearlySuffix") });
+
         const monthContainer = settings.createDiv("dida-month-container");
-        monthContainer.createEl("span", { text: "在" });
+        monthContainer.createEl("span", { text: this.plugin.t("repeat.onMonth") });
         let monthSelect = monthContainer.createEl("select", { cls: "dida-month-select" });
         for (let t = 1; t <= 12; t++) {
             let opt = monthSelect.createEl("option", {
                 value: t.toString(),
-                text: t + "月"
+                text: formatMonthName(t - 1, this.getLanguage())
             });
             if (t === this.month) opt.selected = true;
         }
@@ -196,7 +200,7 @@ export class RepeatSettingsModal extends Modal {
         };
         
         const yeardayContainer = settings.createDiv("dida-yearday-container");
-        yeardayContainer.createEl("span", { text: "第" });
+        yeardayContainer.createEl("span", { text: this.plugin.t("repeat.yearDayPrefix") });
         let dayInput = yeardayContainer.createEl("input", {
             type: "number",
             value: this.monthDay.toString(),
@@ -207,10 +211,10 @@ export class RepeatSettingsModal extends Modal {
         dayInput.onchange = () => {
             this.monthDay = parseInt(dayInput.value) || 1;
         };
-        yeardayContainer.createEl("span", { text: "日" });
+        yeardayContainer.createEl("span", { text: this.plugin.t("repeat.daySuffix") });
 
         const orContainer = settings.createDiv("dida-or-container");
-        orContainer.createEl("span", { text: "或者选择第" });
+        orContainer.createEl("span", { text: this.plugin.t("repeat.orWeekNumberPrefix") });
         let weekNumInput = orContainer.createEl("input", {
             type: "number",
             value: this.yearWeekNumber.toString(),
@@ -221,14 +225,14 @@ export class RepeatSettingsModal extends Modal {
         weekNumInput.onchange = () => {
             this.yearWeekNumber = parseInt(weekNumInput.value) || 1;
         };
-        orContainer.createEl("span", { text: "个" });
+        orContainer.createEl("span", { text: this.plugin.t("repeat.weekNumberSuffix") });
         let weekDaySelect = orContainer.createEl("select", {
             cls: "dida-year-weekday-select"
         });
-        ["日", "一", "二", "三", "四", "五", "六"].forEach((t, e) => {
+        this.getWeekdayLabels().forEach((label, e) => {
             let opt = weekDaySelect.createEl("option", {
                 value: e.toString(),
-                text: "星期" + t
+                text: label
             });
             if (e === this.yearWeekDay) opt.selected = true;
         });
@@ -239,12 +243,12 @@ export class RepeatSettingsModal extends Modal {
 
     renderCustomSettings(container: HTMLElement) {
         const settings = container.createDiv("dida-custom-settings");
-        settings.createEl("h4", { text: "自定义重复设置" });
+        settings.createEl("h4", { text: this.plugin.t("repeat.customHeading") });
         const rruleContainer = settings.createDiv("dida-rrule-container");
-        rruleContainer.createEl("label", { text: "直接输入RRULE格式：" });
+        rruleContainer.createEl("label", { text: this.plugin.t("repeat.customLabel") });
         this.customRRule = rruleContainer.createEl("textarea", {
             cls: "dida-rrule-input",
-            placeholder: "例如：RRULE:FREQ=DAILY;INTERVAL=1"
+            placeholder: this.plugin.t("repeat.customPlaceholder")
         });
         this.customRRule.rows = 3;
     }
@@ -277,5 +281,14 @@ export class RepeatSettingsModal extends Modal {
 
     onClose() {
         this.contentEl.empty();
+    }
+
+    private getLanguage(): ResolvedLanguage {
+        return this.plugin.getUiLanguage();
+    }
+
+    private getWeekdayLabels(): string[] {
+        const language = this.getLanguage();
+        return Array.from({ length: 7 }, (_, index) => formatWeekdayLong(weekdayDate(index), language));
     }
 }

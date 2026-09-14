@@ -2,12 +2,14 @@ import { Extension, RangeSetBuilder } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from "@codemirror/view";
 import { setIcon } from "obsidian";
 import { parseTaskLine } from "../taskLineFormat";
+import { Translator } from "../i18n";
 
 class NativeTaskActionWidget extends WidgetType {
     constructor(
         private lineNumber: number,
         private linked: boolean,
-        private onOpen: (lineNumber: number) => void
+        private onOpen: (lineNumber: number) => void,
+        private t: Translator
     ) {
         super();
     }
@@ -20,8 +22,8 @@ class NativeTaskActionWidget extends WidgetType {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "dida-native-task-action-widget";
-        button.setAttribute("aria-label", this.linked ? "打开滴答任务操作" : "添加到滴答清单");
-        button.title = this.linked ? "滴答任务操作" : "添加到滴答清单";
+        button.setAttribute("aria-label", this.t(this.linked ? "nativeTask.openActions" : "nativeTask.addToDida"));
+        button.title = this.t(this.linked ? "nativeTask.openActions" : "nativeTask.addToDida");
         setIcon(button, this.linked ? "circle-check" : "circle-plus");
         button.onclick = event => {
             event.preventDefault();
@@ -36,7 +38,7 @@ class NativeTaskActionWidget extends WidgetType {
     }
 }
 
-function buildDecorations(view: EditorView, onOpen: (lineNumber: number) => void, enabled: () => boolean): DecorationSet {
+function buildDecorations(view: EditorView, onOpen: (lineNumber: number) => void, enabled: () => boolean, t: Translator): DecorationSet {
     const builder = new RangeSetBuilder<Decoration>();
     if (!enabled()) return builder.finish();
     const seen = new Set<number>();
@@ -49,7 +51,7 @@ function buildDecorations(view: EditorView, onOpen: (lineNumber: number) => void
                 const parsed = parseTaskLine(line.text);
                 if (parsed?.checkbox === " ") {
                     builder.add(line.to, line.to, Decoration.widget({
-                        widget: new NativeTaskActionWidget(line.number - 1, !!parsed.didaId, onOpen),
+                        widget: new NativeTaskActionWidget(line.number - 1, !!parsed.didaId, onOpen, t),
                         side: 1
                     }));
                 }
@@ -63,18 +65,19 @@ function buildDecorations(view: EditorView, onOpen: (lineNumber: number) => void
 
 export function createNativeTaskActionExtension(
     onOpen: (lineNumber: number) => void,
-    enabled: () => boolean
+    enabled: () => boolean,
+    t: Translator
 ): Extension {
     return ViewPlugin.fromClass(class {
         decorations: DecorationSet;
 
         constructor(view: EditorView) {
-            this.decorations = buildDecorations(view, onOpen, enabled);
+            this.decorations = buildDecorations(view, onOpen, enabled, t);
         }
 
         update(update: ViewUpdate) {
             if (update.docChanged || update.viewportChanged) {
-                this.decorations = buildDecorations(update.view, onOpen, enabled);
+                this.decorations = buildDecorations(update.view, onOpen, enabled, t);
             }
         }
     }, {

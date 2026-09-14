@@ -67,15 +67,15 @@ export class TaskNoteSyncModal extends Modal {
         const { contentEl } = this;
         contentEl.empty();
         contentEl.addClass("dida-task-note-sync-modal");
-        contentEl.createEl("h3", { text: "同步任务到笔记" });
+        contentEl.createEl("h3", { text: this.plugin.t("cmd.syncTasksToNote") });
 
         new Setting(contentEl)
             .setClass("dida-task-note-legacy-mode")
-            .setName("同步模式")
-            .setDesc("选择写入汇总笔记，或刷新当前文件中的 didasync 块。")
+            .setName(this.plugin.t("taskNote.mode.name"))
+            .setDesc(this.plugin.t("taskNote.mode.desc"))
             .addDropdown((dropdown) => dropdown
-                .addOption("note", "同步到汇总笔记")
-                .addOption("blocks", "同步当前文件块")
+                .addOption("note", this.plugin.t("taskNote.mode.note"))
+                .addOption("blocks", this.plugin.t("taskNote.mode.blocks"))
                 .setValue(this.mode)
                 .onChange((value) => {
                     this.mode = value as TaskNoteSyncModalMode;
@@ -91,9 +91,9 @@ export class TaskNoteSyncModal extends Modal {
         }
 
         const buttons = contentEl.createDiv("dida-calendar-buttons");
-        buttons.createEl("button", { text: "取消" }).onclick = () => this.close();
+        buttons.createEl("button", { text: this.plugin.t("common.cancel") }).onclick = () => this.close();
         const syncButton = buttons.createEl("button", {
-            text: this.mode === "blocks" ? "同步块" : "同步",
+            text: this.mode === "blocks" ? this.plugin.t("taskNote.submitBlocks") : this.plugin.t("taskNote.submitNote"),
             cls: "mod-cta"
         });
         if (this.mode === "blocks" && !this.canSyncBlocks()) {
@@ -110,7 +110,7 @@ export class TaskNoteSyncModal extends Modal {
             const range = this.buildRange();
             if (!range) return;
             if (this.projectScope === "custom" && this.selectedProjectKeys.length === 0) {
-                new Notice("请至少选择一个清单");
+                new Notice(this.plugin.t("modal.projectPicker.requireOne"));
                 return;
             }
             this.close();
@@ -126,8 +126,8 @@ export class TaskNoteSyncModal extends Modal {
     renderModeTabs(contentEl: HTMLElement) {
         const tabs = contentEl.createDiv("dida-task-note-mode-tabs");
         const options: Array<{ mode: TaskNoteSyncModalMode; label: string; desc: string }> = [
-            { mode: "note", label: "汇总笔记", desc: "按日期写入任务汇总" },
-            { mode: "blocks", label: "当前文件块", desc: "编辑并刷新 didasync 块" }
+            { mode: "note", label: this.plugin.t("taskNote.tab.noteLabel"), desc: this.plugin.t("taskNote.tab.noteDesc") },
+            { mode: "blocks", label: this.plugin.t("taskNote.tab.blocksLabel"), desc: this.plugin.t("taskNote.tab.blocksDesc") }
         ];
         options.forEach((option) => {
             const tab = tabs.createDiv({
@@ -145,14 +145,14 @@ export class TaskNoteSyncModal extends Modal {
 
     renderNoteMode(contentEl: HTMLElement) {
         new Setting(contentEl)
-            .setName("任务范围")
-            .setDesc("选择要写入笔记的任务日期范围。")
+            .setName(this.plugin.t("taskNote.range.name"))
+            .setDesc(this.plugin.t("taskNote.range.desc"))
             .addDropdown((dropdown) => dropdown
-                .addOption("day", "某日")
-                .addOption("week", "某周")
-                .addOption("month", "某月")
-                .addOption("year", "某年")
-                .addOption("custom", "自定义时间段")
+                .addOption("day", this.plugin.t("taskNote.range.day"))
+                .addOption("week", this.plugin.t("taskNote.range.week"))
+                .addOption("month", this.plugin.t("taskNote.range.month"))
+                .addOption("year", this.plugin.t("taskNote.range.year"))
+                .addOption("custom", this.plugin.t("taskNote.range.custom"))
                 .setValue(this.rangeType)
                 .onChange((value) => {
                     this.rangeType = value as TaskNoteSyncRangeType;
@@ -160,28 +160,28 @@ export class TaskNoteSyncModal extends Modal {
                 }));
 
         if (this.rangeType === "custom") {
-            this.addDateInput(contentEl, "开始日期", this.startDate, (value) => {
+            this.addDateInput(contentEl, this.plugin.t("taskNote.date.start"), this.startDate, (value) => {
                 this.startDate = value;
                 this.updatePreview();
             });
-            this.addDateInput(contentEl, "结束日期", this.endDate, (value) => {
+            this.addDateInput(contentEl, this.plugin.t("taskNote.date.end"), this.endDate, (value) => {
                 this.endDate = value;
                 this.updatePreview();
             });
         } else {
-            this.addDateInput(contentEl, "基准日期", this.baseDate, (value) => {
+            this.addDateInput(contentEl, this.plugin.t("taskNote.date.base"), this.baseDate, (value) => {
                 this.baseDate = value;
                 this.updatePreview();
             });
         }
 
         new Setting(contentEl)
-            .setName("清单来源")
-            .setDesc("选择要写入笔记的任务清单范围。")
+            .setName(this.plugin.t("taskNote.scope.name"))
+            .setDesc(this.plugin.t("taskNote.scope.desc"))
             .addDropdown((dropdown) => dropdown
-                .addOption("all", "全部清单")
-                .addOption("visible", "仅侧边栏可见清单")
-                .addOption("custom", "自定义清单")
+                .addOption("all", this.plugin.t("settings.sync.scope.all"))
+                .addOption("visible", this.plugin.t("settings.sync.scope.visible"))
+                .addOption("custom", this.plugin.t("settings.sync.scope.custom"))
                 .setValue(this.projectScope)
                 .onChange(async (value) => {
                     this.projectScope = value as "all" | "visible" | "custom";
@@ -195,8 +195,8 @@ export class TaskNoteSyncModal extends Modal {
         }
 
         new Setting(contentEl)
-            .setName("每次生成新笔记")
-            .setDesc("开启后不会复用旧文件，而是自动追加序号创建新笔记。关闭后优先写入同名笔记，不存在时再创建。")
+            .setName(this.plugin.t("taskNote.newFile.name"))
+            .setDesc(this.plugin.t("taskNote.newFile.desc"))
             .addToggle((toggle) => toggle
                 .setValue(this.createNewFile)
                 .onChange(async (value) => {
@@ -213,23 +213,23 @@ export class TaskNoteSyncModal extends Modal {
     renderBlockMode(contentEl: HTMLElement) {
         const info = contentEl.createDiv("dida-settings-info dida-settings-info--primary dida-task-note-block-status");
         if (!(this.targetFile instanceof TFile)) {
-            info.setText("当前没有可用的 Markdown 文件，无法同步 didasync 块。");
+            info.setText(this.plugin.t("taskNote.blocks.noMarkdown"));
             return;
         }
 
         if (!this.blockAnalysis) {
-            info.setText(`当前文件：${this.targetFile.path}`);
+            info.setText(this.plugin.t("taskNote.blocks.currentFile", { path: this.targetFile.path }));
             return;
         }
 
-        info.createDiv({ text: `当前文件：${this.blockAnalysis.file.path}` });
-        info.createDiv({ text: `检测到 ${this.blockAnalysis.totalBlocks} 个 didasync 块` });
-        info.createDiv({ text: `可同步 ${this.blockAnalysis.validBlocks} 个，配置错误 ${this.blockAnalysis.invalidBlocks} 个` });
+        info.createDiv({ text: this.plugin.t("taskNote.blocks.currentFile", { path: this.blockAnalysis.file.path }) });
+        info.createDiv({ text: this.plugin.t("taskNote.blocks.detected", { count: this.blockAnalysis.totalBlocks }) });
+        info.createDiv({ text: this.plugin.t("taskNote.blocks.syncable", { valid: this.blockAnalysis.validBlocks, invalid: this.blockAnalysis.invalidBlocks }) });
 
-        this.renderSummaryItem(info, "当前文件", this.blockAnalysis.file.path, "dida-task-note-summary-item--path");
-        this.renderSummaryItem(info, "检测块数", `${this.blockAnalysis.totalBlocks}`);
-        this.renderSummaryItem(info, "可同步", `${this.blockAnalysis.validBlocks}`);
-        this.renderSummaryItem(info, "配置错误", `${this.blockAnalysis.invalidBlocks}`, this.blockAnalysis.invalidBlocks > 0 ? "dida-task-note-summary-item--error" : "");
+        this.renderSummaryItem(info, this.plugin.t("taskNote.summary.currentFile"), this.blockAnalysis.file.path, "dida-task-note-summary-item--path");
+        this.renderSummaryItem(info, this.plugin.t("taskNote.summary.blockCount"), `${this.blockAnalysis.totalBlocks}`);
+        this.renderSummaryItem(info, this.plugin.t("taskNote.summary.syncable"), `${this.blockAnalysis.validBlocks}`);
+        this.renderSummaryItem(info, this.plugin.t("taskNote.summary.invalid"), `${this.blockAnalysis.invalidBlocks}`, this.blockAnalysis.invalidBlocks > 0 ? "dida-task-note-summary-item--error" : "");
 
         const editorEl = contentEl.createDiv("dida-task-note-block-editor");
         this.renderBlockEditor(editorEl);
@@ -244,12 +244,12 @@ export class TaskNoteSyncModal extends Modal {
     renderBlockEditor(contentEl: HTMLElement) {
         const analysis = this.blockAnalysis;
         new Setting(contentEl)
-            .setName("编辑块")
-            .setDesc("选择已有块进行编辑，或新建一个 didasync 块。")
+            .setName(this.plugin.t("taskNote.block.edit.name"))
+            .setDesc(this.plugin.t("taskNote.block.edit.desc"))
             .addDropdown((dropdown) => {
-                dropdown.addOption("-1", "新建同步块");
+                dropdown.addOption("-1", this.plugin.t("taskNote.block.new"));
                 analysis?.items.forEach((item, index) => {
-                    dropdown.addOption(String(index), `块 ${index + 1}（第 ${item.lineIndex + 1} 行）`);
+                    dropdown.addOption(String(index), this.plugin.t("taskNote.block.option", { index: index + 1, line: item.lineIndex + 1 }));
                 });
                 dropdown
                     .setValue(String(this.selectedBlockIndex))
@@ -261,8 +261,8 @@ export class TaskNoteSyncModal extends Modal {
             });
 
         new Setting(contentEl)
-            .setName("块标题")
-            .setDesc("默认使用写入区块设置，也可使用兼容的 didasync 标题。")
+            .setName(this.plugin.t("taskNote.block.title.name"))
+            .setDesc(this.plugin.t("taskNote.block.title.desc"))
             .addDropdown((dropdown) => {
                 const configured = (this.plugin.settings.taskNoteSyncTargetBlockHeader || "> [!todo]").trim();
                 const headers = Array.from(new Set([configured, "> [!didasync]", this.blockHeader].filter(Boolean)));
@@ -275,11 +275,11 @@ export class TaskNoteSyncModal extends Modal {
             });
 
         new Setting(contentEl)
-            .setName("块任务范围")
-            .setDesc("保存后会写入块配置；同步时读取文件中的配置。")
+            .setName(this.plugin.t("taskNote.block.range.name"))
+            .setDesc(this.plugin.t("taskNote.block.range.desc"))
             .addDropdown((dropdown) => dropdown
-                .addOption("day", "某日")
-                .addOption("custom", "自定义时间段")
+                .addOption("day", this.plugin.t("taskNote.range.day"))
+                .addOption("custom", this.plugin.t("taskNote.range.custom"))
                 .setValue(this.blockRangeType)
                 .onChange((value) => {
                     this.blockRangeType = value as "day" | "custom";
@@ -287,14 +287,14 @@ export class TaskNoteSyncModal extends Modal {
                 }));
 
         if (this.blockRangeType === "custom") {
-            this.addDateInput(contentEl, "块开始日期", this.blockStartDate, (value) => {
+            this.addDateInput(contentEl, this.plugin.t("taskNote.date.blockStart"), this.blockStartDate, (value) => {
                 this.blockStartDate = value;
             });
-            this.addDateInput(contentEl, "块结束日期", this.blockEndDate, (value) => {
+            this.addDateInput(contentEl, this.plugin.t("taskNote.date.blockEnd"), this.blockEndDate, (value) => {
                 this.blockEndDate = value;
             });
         } else {
-            this.addDateInput(contentEl, "块日期", this.blockBaseDate, (value) => {
+            this.addDateInput(contentEl, this.plugin.t("taskNote.date.blockBase"), this.blockBaseDate, (value) => {
                 this.blockBaseDate = value;
                 this.blockStartDate = value;
                 this.blockEndDate = value;
@@ -302,11 +302,11 @@ export class TaskNoteSyncModal extends Modal {
         }
 
         new Setting(contentEl)
-            .setName("块清单来源")
-            .setDesc("保存后写入 projects；同步时读取块内 projects。")
+            .setName(this.plugin.t("taskNote.block.scope.name"))
+            .setDesc(this.plugin.t("taskNote.block.scope.desc"))
             .addDropdown((dropdown) => dropdown
-                .addOption("all", "全部清单")
-                .addOption("custom", "自定义清单")
+                .addOption("all", this.plugin.t("settings.sync.scope.all"))
+                .addOption("custom", this.plugin.t("settings.sync.scope.custom"))
                 .setValue(this.blockProjectScope)
                 .onChange((value) => {
                     this.blockProjectScope = value as "all" | "custom";
@@ -315,10 +315,10 @@ export class TaskNoteSyncModal extends Modal {
 
         if (this.blockProjectScope === "custom") {
             new Setting(contentEl)
-                .setName("块自定义清单")
-                .setDesc(`已选择 ${this.blockProjectKeys.length} 个清单：${this.getBlockProjectPreviewText()}`)
+                .setName(this.plugin.t("taskNote.block.customProjects.name"))
+                .setDesc(this.plugin.t("taskNote.block.customProjects.desc", { count: this.blockProjectKeys.length, preview: this.getBlockProjectPreviewText() }))
                 .addButton((button) => button
-                    .setButtonText("选择清单")
+                    .setButtonText(this.plugin.t("settings.sync.projects.button"))
                     .onClick(() => {
                         new TaskNoteProjectPickerModal(this.app, this.plugin, this.blockProjectKeys, (keys) => {
                             this.blockProjectKeys = keys;
@@ -329,14 +329,20 @@ export class TaskNoteSyncModal extends Modal {
 
         const preview = contentEl.createDiv("dida-task-note-config-preview");
         const blockConfig = this.buildBlockConfig();
-        this.renderSummaryItem(preview, "范围", blockConfig.range);
-        this.renderSummaryItem(preview, "清单", blockConfig.projects.length > 0 ? blockConfig.projects.join("、") : "全部清单");
-        this.renderSummaryItem(preview, "写入配置", this.selectedBlockIndex >= 0 ? "更新所选块" : "插入新同步块");
-        preview.createDiv({ text: `配置预览：${JSON.stringify(this.buildBlockConfig())}` });
+        this.renderSummaryItem(preview, this.plugin.t("taskNote.summary.range"), blockConfig.range);
+        this.renderSummaryItem(
+            preview,
+            this.plugin.t("taskNote.summary.projects"),
+            blockConfig.projects.length > 0
+                ? blockConfig.projects.map((name) => this.plugin.getProjectDisplayName(name)).join(this.plugin.t("taskNote.projectsJoin"))
+                : this.plugin.t("settings.sync.scope.all")
+        );
+        this.renderSummaryItem(preview, this.plugin.t("taskNote.summary.writeConfig"), this.selectedBlockIndex >= 0 ? this.plugin.t("taskNote.block.updateExisting") : this.plugin.t("taskNote.block.insertNew"));
+        preview.createDiv({ text: this.plugin.t("taskNote.block.configPreview", { json: JSON.stringify(this.buildBlockConfig()) }) });
 
         new Setting(contentEl)
             .addButton((button) => button
-                .setButtonText(this.selectedBlockIndex >= 0 ? "保存块配置" : "插入同步块")
+                .setButtonText(this.selectedBlockIndex >= 0 ? this.plugin.t("taskNote.block.save") : this.plugin.t("taskNote.block.insert"))
                 .setCta()
                 .onClick(async () => {
                     await this.saveBlockConfig();
@@ -349,17 +355,17 @@ export class TaskNoteSyncModal extends Modal {
             const row = list.createDiv(`dida-task-note-block-row${item.error ? " has-error" : ""}`);
             const main = row.createDiv("dida-task-note-block-row-main");
             const title = main.createDiv("dida-task-note-block-row-title");
-            title.createSpan({ cls: "dida-task-note-block-row-index", text: `块 ${index + 1}` });
-            title.createSpan({ cls: "dida-task-note-block-row-name", text: item.title || "未命名块" });
-            main.createDiv({ cls: "dida-task-note-block-row-line", text: `第 ${item.lineIndex + 1} 行` });
+            title.createSpan({ cls: "dida-task-note-block-row-index", text: this.plugin.t("taskNote.block.rowIndex", { index: index + 1 }) });
+            title.createSpan({ cls: "dida-task-note-block-row-name", text: item.title || this.plugin.t("taskNote.block.unnamed") });
+            main.createDiv({ cls: "dida-task-note-block-row-line", text: this.plugin.t("taskNote.block.rowLine", { line: item.lineIndex + 1 }) });
             const meta = row.createDiv("dida-task-note-block-row-meta");
-            this.renderSummaryItem(meta, "范围", item.rangeText);
-            this.renderSummaryItem(meta, "清单", item.projectsText);
-            if (item.error) this.renderSummaryItem(meta, "错误", item.error, "dida-task-note-summary-item--error");
-            row.createDiv({ text: `块 ${index + 1}：${item.title || "未命名块"}` });
-            row.createDiv({ text: `范围：${item.rangeText}` });
-            row.createDiv({ text: `清单：${item.projectsText}` });
-            if (item.error) row.createDiv({ text: `错误：${item.error}` });
+            this.renderSummaryItem(meta, this.plugin.t("taskNote.summary.range"), item.rangeText);
+            this.renderSummaryItem(meta, this.plugin.t("taskNote.summary.projects"), item.projectsText);
+            if (item.error) this.renderSummaryItem(meta, this.plugin.t("taskNote.summary.error"), item.error, "dida-task-note-summary-item--error");
+            row.createDiv({ text: this.plugin.t("taskNote.block.rowTitle", { index: index + 1, name: item.title || this.plugin.t("taskNote.block.unnamed") }) });
+            row.createDiv({ text: this.plugin.t("taskNote.block.rowRange", { range: item.rangeText }) });
+            row.createDiv({ text: this.plugin.t("taskNote.block.rowProjects", { projects: item.projectsText }) });
+            if (item.error) row.createDiv({ text: this.plugin.t("taskNote.block.rowError", { message: item.error }) });
         });
     }
 
@@ -417,11 +423,11 @@ export class TaskNoteSyncModal extends Modal {
 
     async saveBlockConfig() {
         if (!(this.targetFile instanceof TFile)) {
-            new Notice("请选择一个 Markdown 文件");
+            new Notice(this.plugin.t("taskNote.requireMarkdown"));
             return;
         }
         if (this.blockProjectScope === "custom" && this.blockProjectKeys.length === 0) {
-            new Notice("请至少选择一个清单");
+            new Notice(this.plugin.t("modal.projectPicker.requireOne"));
             return;
         }
         this.blockAnalysis = await this.plugin.taskNoteSyncManager.saveDidaBlockConfigInFile(this.targetFile, {
@@ -441,8 +447,10 @@ export class TaskNoteSyncModal extends Modal {
     }
 
     getBlockProjectPreviewText(): string {
-        if (this.blockProjectKeys.length === 0) return "未选择";
-        return this.getBlockProjectNamesForConfig().join("、");
+        if (this.blockProjectKeys.length === 0) return this.plugin.t("taskNote.noneSelected");
+        return this.getBlockProjectNamesForConfig()
+            .map((name) => this.plugin.getProjectDisplayName(name))
+            .join(this.plugin.t("taskNote.projectsJoin"));
     }
 
     getProjectNameForFilterKey(key: string): string {
@@ -473,7 +481,7 @@ export class TaskNoteSyncModal extends Modal {
             .setName(name)
             .addButton((button) => {
                 button.setIcon("calendar");
-                button.setButtonText(value || "选择日期");
+                button.setButtonText(value || this.plugin.t("completed.chooseDate"));
                 button.onClick(() => {
                     new DatePickerModal(
                         this.app,
@@ -485,7 +493,7 @@ export class TaskNoteSyncModal extends Modal {
                             this.render();
                         },
                         button.buttonEl,
-                        null,
+                        this.plugin,
                         null,
                         { dateOnly: true }
                     ).open();
@@ -497,15 +505,15 @@ export class TaskNoteSyncModal extends Modal {
         const projects = this.getProjectOptions();
         if (projects.length === 0) {
             const empty = containerEl.createDiv("dida-settings-info");
-            empty.setText("暂无可选清单，请先同步任务。");
+            empty.setText(this.plugin.t("modal.projectPicker.empty"));
             return;
         }
 
         new Setting(containerEl)
-            .setName("自定义清单")
-            .setDesc(`已选择 ${this.selectedProjectKeys.length} / ${projects.length} 个清单。`)
+            .setName(this.plugin.t("settings.sync.scope.custom"))
+            .setDesc(this.plugin.t("taskNote.projectsCount", { selected: this.selectedProjectKeys.length, total: projects.length }))
             .addButton((button) => button
-                .setButtonText("选择清单")
+                .setButtonText(this.plugin.t("settings.sync.projects.button"))
                 .onClick(() => {
                     new TaskNoteProjectPickerModal(this.app, this.plugin, this.selectedProjectKeys, (keys) => {
                         this.selectedProjectKeys = keys;
@@ -532,14 +540,14 @@ export class TaskNoteSyncModal extends Modal {
     buildRange() {
         if (this.rangeType === "custom") {
             if (!this.startDate || !this.endDate) {
-                new Notice("请选择开始日期和结束日期");
+                new Notice(this.plugin.t("taskNote.requireRange"));
                 return null;
             }
             return this.plugin.taskNoteSyncManager.createRange("custom", this.startDate, this.endDate);
         }
 
         if (!this.baseDate) {
-            new Notice("请选择基准日期");
+            new Notice(this.plugin.t("taskNote.requireBaseDate"));
             return null;
         }
         return this.plugin.taskNoteSyncManager.createRange(this.rangeType, this.baseDate);
@@ -554,11 +562,11 @@ export class TaskNoteSyncModal extends Modal {
     updatePreview() {
         if (!this.previewEl) return;
         if (this.rangeType === "custom" && (!this.startDate || !this.endDate)) {
-            this.previewEl.setText("请选择有效日期。");
+            this.previewEl.setText(this.plugin.t("taskNote.invalidDate"));
             return;
         }
         if (this.rangeType !== "custom" && !this.baseDate) {
-            this.previewEl.setText("请选择有效日期。");
+            this.previewEl.setText(this.plugin.t("taskNote.invalidDate"));
             return;
         }
 
@@ -567,27 +575,27 @@ export class TaskNoteSyncModal extends Modal {
             : this.plugin.taskNoteSyncManager.createRange(this.rangeType, this.baseDate);
 
         const filePath = this.plugin.taskNoteSyncManager.buildTargetFilePath(range);
-        const fileMode = this.createNewFile ? "生成新的笔记文件" : "写入同名笔记，若不存在则新建";
+        const fileMode = this.createNewFile ? this.plugin.t("taskNote.file.newFile") : this.plugin.t("taskNote.file.reuse");
         const projectLabel = this.getProjectScopePreviewText();
         this.previewEl.empty();
-        this.renderSummaryItem(this.previewEl, "任务范围", `${range.startDate} 至 ${range.endDate}`);
-        this.renderSummaryItem(this.previewEl, "清单来源", projectLabel);
-        this.renderSummaryItem(this.previewEl, "写入方式", fileMode);
-        this.renderSummaryItem(this.previewEl, "目标位置", filePath, "dida-task-note-summary-item--path");
-        this.previewEl.createDiv({ text: `任务范围：${range.startDate} 至 ${range.endDate}` });
-        this.previewEl.createDiv({ text: `清单来源：${projectLabel}` });
-        this.previewEl.createDiv({ text: `写入方式：${fileMode}` });
-        this.previewEl.createDiv({ text: `目标位置：${filePath}` });
+        this.renderSummaryItem(this.previewEl, this.plugin.t("taskNote.summary.taskRange"), this.plugin.t("taskNote.taskRangeValue", { start: range.startDate, end: range.endDate }));
+        this.renderSummaryItem(this.previewEl, this.plugin.t("taskNote.summary.scope"), projectLabel);
+        this.renderSummaryItem(this.previewEl, this.plugin.t("taskNote.summary.writeMode"), fileMode);
+        this.renderSummaryItem(this.previewEl, this.plugin.t("taskNote.summary.target"), filePath, "dida-task-note-summary-item--path");
+        this.previewEl.createDiv({ text: this.plugin.t("taskNote.summary.taskRange") + ": " + this.plugin.t("taskNote.taskRangeValue", { start: range.startDate, end: range.endDate }) });
+        this.previewEl.createDiv({ text: this.plugin.t("taskNote.summary.scope") + ": " + projectLabel });
+        this.previewEl.createDiv({ text: this.plugin.t("taskNote.summary.writeMode") + ": " + fileMode });
+        this.previewEl.createDiv({ text: this.plugin.t("taskNote.summary.target") + ": " + filePath });
     }
 
     getProjectScopePreviewText() {
-        if (this.projectScope === "all") return "全部清单";
+        if (this.projectScope === "all") return this.plugin.t("settings.sync.scope.all");
         const keys = this.getSelectedProjectKeysForSync();
-        if (this.projectScope === "visible") return `仅侧边栏可见清单（${keys.length} 个）`;
+        if (this.projectScope === "visible") return this.plugin.t("taskNote.scope.visibleCount", { count: keys.length });
         const names = this.getProjectOptions()
             .filter((project) => keys.includes(this.plugin.getProjectFilterKey(project.id, project.name)))
-            .map((project) => project.name);
-        return names.length > 0 ? names.join("、") : "未选择清单";
+            .map((project) => this.plugin.getProjectDisplayName(project.name));
+        return names.length > 0 ? names.join(this.plugin.t("taskNote.projectsJoin")) : this.plugin.t("taskNote.noneSelected");
     }
 
     onClose() {

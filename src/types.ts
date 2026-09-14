@@ -271,6 +271,23 @@ export interface SyncFailureDetail {
 export type OAuthCallbackMode = "localhost" | "ipv4";
 export type DidaServiceRegion = "dida365" | "ticktick";
 
+/**
+ * Internal identity for the locally synthesized Inbox project.
+ *
+ * This value is persisted in settings and compared by name, so it must never be
+ * translated. Use `plugin.getProjectDisplayName()` when rendering it.
+ */
+export const INBOX_PROJECT_NAME = "收集箱";
+
+/** Internal identity for tasks that only exist locally. Never translate. */
+export const LOCAL_PROJECT_NAME = "本地任务";
+
+/**
+ * Marker embedded in persisted note-sync errors so duplicates can be detected
+ * again on later runs. Never translate: existing vaults already store this text.
+ */
+export const DUPLICATE_LOCAL_FILE_MARKER = "多个本地 Markdown";
+
 export interface DidaServiceConfig {
     label: string;
     developerUrl: string;
@@ -300,6 +317,7 @@ export const DIDA_SERVICE_CONFIGS: Record<DidaServiceRegion, DidaServiceConfig> 
 };
 
 export interface DidaSyncSettings {
+    uiLanguage: "auto" | "en" | "zh";
     serviceRegion: DidaServiceRegion;
     clientId: string;
     clientSecret: string;
@@ -392,6 +410,7 @@ export interface DidaSyncSettings {
 }
 
 export const DEFAULT_SETTINGS: DidaSyncSettings = {
+    uiLanguage: "auto",
     serviceRegion: "dida365",
     clientId: "",
     clientSecret: "",

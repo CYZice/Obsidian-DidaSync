@@ -1,4 +1,6 @@
 import { IconName, setIcon } from "obsidian";
+import { formatWeekdayShort, MessageKey, MessageParams, ResolvedLanguage, translate, weekdayDate } from "./i18n";
+import { INBOX_PROJECT_NAME, LOCAL_PROJECT_NAME } from "./types";
 export { ensureTaskCompletedTime, formatCompletedTime, normalizeRemoteCompletedTime } from "./taskCompletion";
 
 export function debounce<T extends (...args: any[]) => any>(
@@ -92,7 +94,7 @@ export function compareProjectGroups(
     projectOrder: string[] = []
 ): number {
     const getBucket = ({ name, taskCount }: { name: string; taskCount: number }) => {
-        if (name === "收集箱") return 0;
+        if (name === INBOX_PROJECT_NAME) return 0;
         return taskCount > 0 ? 1 : 2;
     };
 
@@ -100,8 +102,8 @@ export function compareProjectGroups(
     const bucketB = getBucket(b);
     if (bucketA !== bucketB) return bucketA - bucketB;
 
-    if (a.name === "本地任务" && b.name !== "本地任务") return 1;
-    if (b.name === "本地任务" && a.name !== "本地任务") return -1;
+    if (a.name === LOCAL_PROJECT_NAME && b.name !== LOCAL_PROJECT_NAME) return 1;
+    if (b.name === LOCAL_PROJECT_NAME && a.name !== LOCAL_PROJECT_NAME) return -1;
 
     const indexA = projectOrder.indexOf(a.name);
     const indexB = projectOrder.indexOf(b.name);
@@ -165,8 +167,9 @@ export function appendValidatedSvg(container: HTMLElement, svgMarkup: string): b
     return true;
 }
 
-export function translateRepeatFlag(repeatFlag: string): RepeatRuleDisplay | null {
+export function translateRepeatFlag(repeatFlag: string, language: ResolvedLanguage = "en"): RepeatRuleDisplay | null {
     if (!repeatFlag || "" === repeatFlag) return null;
+    const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
     try {
         const rruleStr = repeatFlag.startsWith("RRULE:") ? repeatFlag.substring(6) : repeatFlag;
         const rules: Record<string, string> = {};
@@ -179,48 +182,46 @@ export function translateRepeatFlag(repeatFlag: string): RepeatRuleDisplay | nul
         let text = "";
         switch (freq) {
             case "DAILY":
-                text = interval === 1 ? "每天" : `每 ${interval} 天`;
+                text = interval === 1 ? t("repeat.display.daily") : t("repeat.display.everyDays", { interval });
                 break;
             case "WEEKLY": {
                 const byday = rules.BYDAY;
                 if (byday) {
-                    const dayMap: Record<string, string> = {
-                        SU: "周日",
-                        MO: "周一",
-                        TU: "周二",
-                        WE: "周三",
-                        TH: "周四",
-                        FR: "周五",
-                        SA: "周六"
-                    };
-                    const days = byday.split(",").map((day) => dayMap[day] || day).join("、");
-                    text = interval === 1 ? `每周 ${days}` : `每 ${interval} 周的 ${days}`;
+                    const dayMap: Record<string, number> = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+                    const days = byday.split(",")
+                        .map((day) => dayMap[day] === undefined ? day : formatWeekdayShort(weekdayDate(dayMap[day]), language))
+                        .join(t("repeat.display.daysJoin"));
+                    text = interval === 1
+                        ? t("repeat.display.weeklyOn", { days })
+                        : t("repeat.display.everyWeeksOn", { interval, days });
                 } else {
-                    text = interval === 1 ? "每周" : `每 ${interval} 周`;
+                    text = interval === 1 ? t("repeat.display.weekly") : t("repeat.display.everyWeeks", { interval });
                 }
                 break;
             }
             case "MONTHLY": {
                 const bymonthday = rules.BYMONTHDAY;
                 text = bymonthday
-                    ? (interval === 1 ? `每月 ${bymonthday} 日` : `每 ${interval} 个月的 ${bymonthday} 日`)
-                    : (interval === 1 ? "每月" : `每 ${interval} 个月`);
+                    ? (interval === 1 ? t("repeat.display.monthlyOnDay", { day: bymonthday }) : t("repeat.display.everyMonthsOnDay", { interval, day: bymonthday }))
+                    : (interval === 1 ? t("repeat.display.monthly") : t("repeat.display.everyMonths", { interval }));
                 break;
             }
             case "YEARLY": {
                 const bymonth = rules.BYMONTH;
                 const bymonthday = rules.BYMONTHDAY;
                 text = bymonth && bymonthday
-                    ? (interval === 1 ? `每年 ${bymonth} 月 ${bymonthday} 日` : `每 ${interval} 年的 ${bymonth} 月 ${bymonthday} 日`)
-                    : (interval === 1 ? "每年" : `每 ${interval} 年`);
+                    ? (interval === 1
+                        ? t("repeat.display.yearlyOn", { month: bymonth, day: bymonthday })
+                        : t("repeat.display.everyYearsOn", { interval, month: bymonth, day: bymonthday }))
+                    : (interval === 1 ? t("repeat.display.yearly") : t("repeat.display.everyYears", { interval }));
                 break;
             }
             default:
-                text = "重复";
+                text = t("repeat.display.repeat");
         }
         return { label: text, icon: "repeat" };
     } catch (e) {
-        return { label: "重复", icon: "repeat" };
+        return { label: t("repeat.display.repeat"), icon: "repeat" };
     }
 }
 

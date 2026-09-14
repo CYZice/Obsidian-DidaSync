@@ -1,7 +1,7 @@
 import { App, Editor, EditorPosition } from 'obsidian';
 import DidaSyncPlugin from '../main';
 import { getDidaTaskPath } from '../taskTree';
-import { DidaTask } from '../types';
+import { DidaTask, INBOX_PROJECT_NAME } from '../types';
 
 export class TaskSuggestionPopup {
     app: App;
@@ -60,7 +60,7 @@ export class TaskSuggestionPopup {
         const input = document.createElement("input");
         input.type = "text";
         input.className = "dida-search-input";
-        input.placeholder = "搜索任务或输入新任务标题（Enter确认）...";
+        input.placeholder = this.plugin.t("suggestion.searchPlaceholder");
         input.value = this.searchTerm;
 
         let isComposing = false;
@@ -98,14 +98,14 @@ export class TaskSuggestionPopup {
         if (this.searchTerm) {
             const hint = document.createElement("div");
             hint.className = "dida-search-hint";
-            hint.textContent = `搜索结果: ${this.filteredTasks.length} 个任务`;
+            hint.textContent = this.plugin.t("suggestion.resultCount", { count: this.filteredTasks.length });
             this.element.appendChild(hint);
         }
 
         if (this.filteredTasks.length === 0) {
             const noTasks = document.createElement("div");
             noTasks.className = "dida-no-tasks";
-            noTasks.textContent = this.searchTerm ? "没有找到匹配的任务，按Enter创建新任务" : "没有找到任务";
+            noTasks.textContent = this.searchTerm ? this.plugin.t("suggestion.noMatch") : this.plugin.t("suggestion.noTasks");
             this.element.appendChild(noTasks);
         } else {
             const suggestionsContainer = document.createElement("div");
@@ -119,11 +119,11 @@ export class TaskSuggestionPopup {
 
                 const titleDiv = document.createElement("div");
                 titleDiv.className = "dida-suggestion-title";
-                titleDiv.textContent = task.title || "无标题任务";
+                titleDiv.textContent = task.title || this.plugin.t("common.untitledTask");
                 if (task.completed) titleDiv.classList.add("completed");
                 item.appendChild(titleDiv);
 
-                const taskPath = getDidaTaskPath(task, this.plugin.settings.tasks || []);
+                const taskPath = getDidaTaskPath(task, this.plugin.settings.tasks || [], this.plugin.t("common.untitledTask"));
                 if (task.parentId && taskPath && taskPath !== task.title) {
                     const pathDiv = document.createElement("div");
                     pathDiv.className = "dida-suggestion-task-path";
@@ -134,7 +134,7 @@ export class TaskSuggestionPopup {
                 if (task.projectName) {
                     const projectDiv = document.createElement("div");
                     projectDiv.className = "dida-suggestion-project";
-                    projectDiv.textContent = "项目: " + task.projectName;
+                    projectDiv.textContent = this.plugin.t("suggestion.projectLabel", { name: this.plugin.getProjectDisplayName(task.projectName) });
                     item.appendChild(projectDiv);
                 }
 
@@ -243,7 +243,7 @@ export class TaskSuggestionPopup {
             tasks = tasks.filter(t => {
                 const titleMatch = t.title && t.title.toLowerCase().includes(this.searchTerm.toLowerCase());
                 const projectMatch = t.projectName && t.projectName.toLowerCase().includes(this.searchTerm.toLowerCase());
-                const pathMatch = getDidaTaskPath(t, this.plugin.settings.tasks || []).toLowerCase().includes(this.searchTerm.toLowerCase());
+                const pathMatch = getDidaTaskPath(t, this.plugin.settings.tasks || [], this.plugin.t("common.untitledTask")).toLowerCase().includes(this.searchTerm.toLowerCase());
                 return titleMatch || projectMatch || pathMatch;
             }).sort((a, b) => {
                 const dateA = new Date(a.updatedAt || a.createdAt).getTime();
@@ -276,7 +276,7 @@ export class TaskSuggestionPopup {
     async createNewTask(title: string) {
         this.close();
         try {
-            const task = await this.plugin.addTask(title, "收集箱", "inbox");
+            const task = await this.plugin.addTask(title, INBOX_PROJECT_NAME, "inbox");
             // If addTask returns a task, we use it.
             // But plugin.addTask logic might handle the rest.
             // The original code calls insertTaskLink.

@@ -1,6 +1,6 @@
 import { App, normalizePath, Notice, TFile } from "obsidian";
 import DidaSyncPlugin from "../main";
-import { DidaNoteSyncRecord, DidaNoteSyncRunSource, DidaNoteSyncStatus, DidaNoteSyncSummary, DidaTask } from "../types";
+import { DUPLICATE_LOCAL_FILE_MARKER, DidaNoteSyncRecord, DidaNoteSyncRunSource, DidaNoteSyncStatus, DidaNoteSyncSummary, DidaTask, INBOX_PROJECT_NAME } from "../types";
 import { resolveWholeEntityConflict } from "../sync/WholeEntityConflictPolicy";
 import { LocalDeletionTracker } from "../sync/LocalDeletionTracker";
 
@@ -20,6 +20,11 @@ interface LocalNoteMatch {
     parsed: ParsedNoteFile;
 }
 
+/**
+ * Persisted, non-localized text. Existing vaults already store this exact string
+ * as `record.error`, and duplicate detection relies on it, so it must keep its
+ * original wording even though it never appears in the English UI.
+ */
 const DUPLICATE_LOCAL_FILE_ERROR = "检测到多个本地 Markdown 拥有相同 didaNoteId，请先手动清理重复文件。";
 
 export class NoteSyncManager {
@@ -41,13 +46,13 @@ export class NoteSyncManager {
         try {
             if (!this.plugin.settings.enableDidaNoteSync) {
                 summary.outcome = "skipped";
-                summary.summaryText = "笔记同步未启用";
+                summary.summaryText = this.plugin.t("noteSync.disabled");
                 return await this.persistSummary(summary, source, startedAt, this.shouldSilenceSummaryNotice(summary, options));
             }
-            if (!this.plugin.settings.accessToken) throw new Error("请先完成 OAuth 认证");
+            if (!this.plugin.settings.accessToken) throw new Error(this.plugin.t("error.oauthRequired"));
             if ((this.plugin.settings.didaNoteSyncProjectIds || []).filter(Boolean).length === 0) {
                 summary.outcome = "skipped";
-                summary.summaryText = "请先选择笔记清单";
+                summary.summaryText = this.plugin.t("noteSync.noProjectsSelected");
                 return await this.persistSummary(summary, source, startedAt, this.shouldSilenceSummaryNotice(summary, options));
             }
 
@@ -63,7 +68,7 @@ export class NoteSyncManager {
                     const result = await this.syncRemoteNote(note);
                     summary[result]++;
                 } catch (error: any) {
-                    const message = this.normalizeErrorMessage(error, "同步笔记失败");
+                    const message = this.normalizeErrorMessage(error, this.plugin.t("noteSync.failed"));
                     summary.errors.push(message);
                     await this.markNoteError(note, message);
                 }
@@ -73,7 +78,7 @@ export class NoteSyncManager {
             summary.summaryText = this.formatSyncNotice(summary);
             return await this.persistSummary(summary, source, startedAt, this.shouldSilenceSummaryNotice(summary, options));
         } catch (error: any) {
-            const message = this.normalizeErrorMessage(error, "同步笔记失败");
+            const message = this.normalizeErrorMessage(error, this.plugin.t("noteSync.failed"));
             summary.outcome = "failed";
             summary.summaryText = message;
             summary.errors.push(message);
@@ -130,7 +135,7 @@ export class NoteSyncManager {
 
     async forcePullRecord(didaId: string): Promise<boolean> {
         const record = await this.ensureRecord(didaId);
-        if (!record) throw new Error("未找到本地同步记录");
+        if (!record) throw new Error(this.plugin.t("noteSync.recordMissing"));
         if (this.isDuplicateLocalFileError(record.error)) throw new Error(record.error || DUPLICATE_LOCAL_FILE_ERROR);
 
         const remoteNotes = await this.fetchRemoteNotes();
@@ -138,11 +143,11 @@ export class NoteSyncManager {
         if (!remote) {
             record.remoteMissing = true;
             record.status = "missing";
-            record.error = "远端笔记已不存在";
+            record.error = this.plugin.t("noteSync.remoteMissing");
             await this.persistManualActionSummary({
                 synced: 0,
                 pushed: 0,
-                summaryText: "远端笔记已不存在"
+                summaryText: this.plugin.t("noteSync.remoteMissing")
             });
             return false;
         }
@@ -156,18 +161,18 @@ export class NoteSyncManager {
         await this.persistManualActionSummary({
             synced: 1,
             pushed: 0,
-            summaryText: "笔记已更新"
+            summaryText: this.plugin.t("noteSync.updated")
         });
         return true;
     }
 
     async forcePushRecord(didaId: string): Promise<boolean> {
         const record = await this.ensureRecord(didaId);
-        if (!record) throw new Error("未找到本地同步记录");
+        if (!record) throw new Error(this.plugin.t("noteSync.recordMissing"));
         if (this.isDuplicateLocalFileError(record.error)) throw new Error(record.error || DUPLICATE_LOCAL_FILE_ERROR);
 
         const file = this.app.vault.getAbstractFileByPath(record.path);
-        if (!(file instanceof TFile)) throw new Error("本地 Markdown 文件不存在");
+        if (!(file instanceof TFile)) throw new Error(this.plugin.t("noteSync.localMissing"));
 
         const parsed = await this.readParsedFile(file);
         const body = parsed.body;
@@ -192,7 +197,7 @@ export class NoteSyncManager {
         await this.persistManualActionSummary({
             synced: 0,
             pushed: 1,
-            summaryText: "笔记已更新"
+            summaryText: this.plugin.t("noteSync.updated")
         });
         return true;
     }
@@ -277,15 +282,15 @@ export class NoteSyncManager {
     }
 
     private formatSyncNotice(summary: DidaNoteSyncSummary): string {
-        if (summary.errors.length > 0) return `笔记同步完成，失败 ${summary.errors.length} 条`;
-        if (summary.conflicts > 0) return `笔记同步完成，${summary.conflicts} 条需合并`;
+        if (summary.errors.length > 0) return this.plugin.t("noteSync.summaryFailed", { count: summary.errors.length });
+        if (summary.conflicts > 0) return this.plugin.t("noteSync.summaryConflicts", { count: summary.conflicts });
         const changedParts: string[] = [];
-        if (summary.synced > 0) changedParts.push(`拉取 ${summary.synced}`);
-        if (summary.pushed > 0) changedParts.push(`推送 ${summary.pushed}`);
-        if (summary.missing > 0) changedParts.push(`缺失 ${summary.missing}`);
-        if (changedParts.length > 0) return `笔记同步完成：${changedParts.join("，")}`;
-        if (summary.fetched === 0) return "没有可同步的笔记";
-        return "笔记已是最新";
+        if (summary.synced > 0) changedParts.push(this.plugin.t("noteSync.summaryPulled", { count: summary.synced }));
+        if (summary.pushed > 0) changedParts.push(this.plugin.t("noteSync.summaryPushed", { count: summary.pushed }));
+        if (summary.missing > 0) changedParts.push(this.plugin.t("noteSync.summaryMissing", { count: summary.missing }));
+        if (changedParts.length > 0) return this.plugin.t("noteSync.summaryDone", { parts: changedParts.join(this.plugin.t("modal.visibility.join")) });
+        if (summary.fetched === 0) return this.plugin.t("noteSync.nothingToSync");
+        return this.plugin.t("noteSync.upToDate");
     }
 
     private normalizeErrorMessage(error: unknown, fallback: string): string {
@@ -329,7 +334,7 @@ export class NoteSyncManager {
                 remoteModifiedAt: (note as any).updatedAt || (note as any).modifiedTime
             });
             if (decision === "unresolvable") {
-                throw new Error("本地和云端笔记均有修改，但修改时间无法比较，已停止覆盖");
+                throw new Error(this.plugin.t("noteSync.conflictTimestampsUncomparable"));
             }
             if (decision === "local") {
                 await this.pushLocalToRemote(note, current.body);
@@ -427,7 +432,7 @@ export class NoteSyncManager {
 
     private async pushLocalToRemote(note: DidaTask, body: string) {
         const didaId = note.didaId || note.id;
-        if (!didaId) throw new Error("缺少滴答笔记 id，无法回写");
+        if (!didaId) throw new Error(this.plugin.t("noteSync.missingDidaId"));
         const localNote = this.extractLocalNoteContent(body, note.title);
         note.title = localNote.title;
         const payload = {
@@ -534,7 +539,7 @@ export class NoteSyncManager {
     }
 
     private isDuplicateLocalFileError(error?: string) {
-        return typeof error === "string" && error.includes("多个本地 Markdown");
+        return typeof error === "string" && error.includes(DUPLICATE_LOCAL_FILE_MARKER);
     }
 
     private async findLocalFilesByDidaId(didaId: string): Promise<LocalNoteMatch[]> {
@@ -588,7 +593,7 @@ export class NoteSyncManager {
             current = current ? `${current}/${part}` : part;
             const existingFolder = this.app.vault.getAbstractFileByPath(current);
             if (existingFolder instanceof TFile) {
-                throw new Error(`笔记目录路径被文件占用：${current}`);
+                throw new Error(this.plugin.t("noteSync.folderPathOccupiedByFile", { path: current }));
             }
             if (!existingFolder) {
                 await this.app.vault.createFolder(current);
@@ -596,7 +601,7 @@ export class NoteSyncManager {
         }
         const existing = this.app.vault.getAbstractFileByPath(normalized);
         if (existing instanceof TFile) return existing;
-        if (existing) throw new Error(`笔记路径已被目录占用：${normalized}`);
+        if (existing) throw new Error(this.plugin.t("noteSync.notePathOccupiedByFolder", { path: normalized }));
         const body = this.getNoteBody(note);
         return await this.app.vault.create(normalized, this.renderFile(note, body, this.hashMarkdownBody(body), "synced"));
     }
@@ -731,7 +736,7 @@ export class NoteSyncManager {
             if (!record.remoteMissing || record.status !== "missing") missing++;
             record.remoteMissing = true;
             record.status = "missing";
-            record.error = "远端笔记已不存在";
+            record.error = this.plugin.t("noteSync.remoteMissing");
         });
         return missing;
     }
@@ -792,7 +797,7 @@ export class NoteSyncManager {
         const project = Array.isArray(catalog) ? catalog.find((entry: any) => entry?.id === id) : null;
         return {
             id,
-            name: id === "inbox" ? "收集箱" : project?.name || id,
+            name: id === "inbox" ? INBOX_PROJECT_NAME : project?.name || id,
             kind: project?.kind || "NOTE",
             viewMode: project?.viewMode || "note"
         };

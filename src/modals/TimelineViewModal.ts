@@ -1,8 +1,9 @@
 import { App } from 'obsidian';
 import DidaSyncPlugin from '../main';
+import { formatYearMonth, resolveUiLocale } from '../i18n';
 import { resolveTaskIndex } from '../taskIndex';
 import { getDidaTaskPath, getDidaTaskTreeKeys } from '../taskTree';
-import { DidaTask } from '../types';
+import { DidaTask, INBOX_PROJECT_NAME } from '../types';
 import { debounce, setIconElement, setTextWithIcon, translateRepeatFlag } from '../utils';
 import { AddTaskModal } from './AddTaskModal';
 import { DatePickerModal } from './DatePickerModal';
@@ -50,9 +51,9 @@ export class TimelineViewModal {
 
     private getTaskPathLabel(task: DidaTask): string {
         try {
-            return getDidaTaskPath(task, this.plugin.settings.tasks || []);
+            return getDidaTaskPath(task, this.plugin.settings.tasks || [], this.plugin.t("common.untitledTask"));
         } catch (error) {
-            return task.title || "未命名任务";
+            return task.title || this.plugin.t("common.untitledTask");
         }
     }
 
@@ -150,7 +151,7 @@ export class TimelineViewModal {
         const title = header.createEl("h2", {
             cls: "dida-timeline-custom-window-title"
         });
-        setTextWithIcon(title, "时间线日历视图", "calendar-check");
+        setTextWithIcon(title, this.plugin.t("timeline.title"), "calendar-check");
 
         const closeBtn = header.createEl("button", {
             cls: "dida-timeline-custom-window-close"
@@ -190,7 +191,9 @@ export class TimelineViewModal {
             this.renderTimelineView();
         };
 
-        nav.createDiv("dida-timeline-month-display").setText(`${this.displayYear}\u5e74${this.displayMonth + 1}\u6708`);
+        nav.createDiv("dida-timeline-month-display").setText(
+            formatYearMonth(this.displayYear, this.displayMonth, this.plugin.getUiLanguage())
+        );
 
         nav.createEl("button", {
             text: ">",
@@ -350,11 +353,11 @@ export class TimelineViewModal {
                             lineHeight: "1",
                             fontWeight: "bold"
                         });
-                        if (isDone) dot.title = "已完成任务";
+                        if (isDone) dot.title = this.plugin.t("timeline.completedDot");
                     }
                 }
             }
-            countDiv.title = totalCount + " 个任务";
+            countDiv.title = this.plugin.t("timeline.taskCount", { count: totalCount });
         }
 
         if (this.isCalendarExpanded && date.getMonth() !== this.displayMonth) {
@@ -405,7 +408,7 @@ export class TimelineViewModal {
         }
 
         if (tasks.length === 0) {
-            list.createDiv("dida-timeline-empty-state").createEl("p", { text: "今天没有任务" });
+            list.createDiv("dida-timeline-empty-state").createEl("p", { text: this.plugin.t("timeline.noTasksToday") });
         }
 
         this.renderFloatingActionButton(container);
@@ -427,7 +430,7 @@ export class TimelineViewModal {
             item.setAttribute("data-task-id", task.id);
 
             const elementContainer = item.createDiv("dida-timeline-element-container");
-            elementContainer.createDiv("dida-timeline-time-label").textContent = "全天";
+            elementContainer.createDiv("dida-timeline-time-label").textContent = this.plugin.t("schedule.allDay");
 
             const cb = elementContainer.createEl("input", { type: "checkbox" });
             cb.checked = task.status === 2;
@@ -436,7 +439,7 @@ export class TimelineViewModal {
             const titleSpan = titleStack.createEl("span", {
                 cls: task.status === 2 ? "dida-timeline-task-completed dida-task-title-clickable" : "dida-timeline-task-title dida-task-title-clickable"
             });
-            this.renderTimelineTaskTitleContent(titleSpan, task.title || "无标题任务");
+            this.renderTimelineTaskTitleContent(titleSpan, task.title || this.plugin.t("common.untitledTask"));
             titleSpan.title = this.getTaskPathLabel(task);
 
             titleSpan.onclick = () => this.toggleTimelineTaskDetails(item, task);
@@ -450,7 +453,7 @@ export class TimelineViewModal {
             }
 
             if (task.repeatFlag && task.repeatFlag.trim() !== "") {
-                const repeatText = translateRepeatFlag(task.repeatFlag);
+                const repeatText = translateRepeatFlag(task.repeatFlag, this.plugin.getUiLanguage());
                 if (repeatText) {
                     const rDiv = document.createElement("div");
                     rDiv.className = "dida-task-repeat-rule";
@@ -479,7 +482,7 @@ export class TimelineViewModal {
                 const subSpan = item.createEl("span", { cls: "dida-subtask-count" });
                 setTextWithIcon(subSpan, `${activeCount}/${task.items.length}`, "list-todo");
                 subSpan.addClass("dida-task-count-base", "dida-task-count-sub");
-                subSpan.title = "点击查看检查项";
+                subSpan.title = this.plugin.t("timeline.checkItemsHint");
                 subSpan.onclick = () => this.toggleTimelineTaskDetails(item, task, "check-items-tab");
             }
 
@@ -489,7 +492,7 @@ export class TimelineViewModal {
                 const childSpan = item.createEl("span", { cls: "dida-child-task-count" });
                 childSpan.addClass("dida-task-count-base", "dida-task-count-child", "dida-child-task-count-static");
                 this.renderChildCountBadge(childSpan, completedChilds, childTasks.length);
-                childSpan.title = "子任务数";
+                childSpan.title = this.plugin.t("timeline.subtaskCount");
             }
 
             const dateSpan = item.createEl("span", { cls: "dida-task-due-date" });
@@ -515,7 +518,7 @@ export class TimelineViewModal {
             }
 
             dateSpan.addClass("dida-clickable-date");
-            dateSpan.title = "点击设置到期日期";
+            dateSpan.title = this.plugin.t("timeline.setDueDate");
             dateSpan.onclick = (e) => {
                 e.stopPropagation();
                 const idx = this.plugin.settings.tasks.findIndex(t => t.didaId === task.didaId || t.id === task.id);
@@ -532,7 +535,7 @@ export class TimelineViewModal {
             delBtn.onclick = async (e) => {
                 e.stopPropagation();
                 e.preventDefault();
-                if (confirm(`确定要删除任务"${task.title}"吗？`)) {
+                if (confirm(this.plugin.t("timeline.deleteConfirm", { title: task.title }))) {
                     const idx = this.plugin.settings.tasks.findIndex(t => t.didaId === task.didaId || t.id === task.id);
                     if (idx !== -1) {
                         await this.plugin.deleteTask(idx);
@@ -551,7 +554,7 @@ export class TimelineViewModal {
 
             const elementContainer = item.createDiv("dida-timeline-element-container");
             const timeLabel = elementContainer.createDiv("dida-timeline-time-label");
-            const timeStr = new Date(task.startDate || task.dueDate!).toLocaleTimeString("zh-CN", {
+            const timeStr = new Date(task.startDate || task.dueDate!).toLocaleTimeString(resolveUiLocale(this.plugin.getUiLanguage()), {
                 hour: "2-digit",
                 minute: "2-digit",
                 hour12: false
@@ -564,7 +567,7 @@ export class TimelineViewModal {
             const titleSpan = titleStack.createEl("span", {
                 cls: task.status === 2 ? "dida-timeline-task-completed dida-task-title-clickable" : "dida-timeline-task-title dida-task-title-clickable"
             });
-            this.renderTimelineTaskTitleContent(titleSpan, task.title || "无标题任务");
+            this.renderTimelineTaskTitleContent(titleSpan, task.title || this.plugin.t("common.untitledTask"));
             titleSpan.title = this.getTaskPathLabel(task);
             titleSpan.onclick = () => this.toggleTimelineTaskDetails(item, task);
 
@@ -577,7 +580,7 @@ export class TimelineViewModal {
             }
 
             if (task.repeatFlag && task.repeatFlag.trim() !== "") {
-                const repeatText = translateRepeatFlag(task.repeatFlag);
+                const repeatText = translateRepeatFlag(task.repeatFlag, this.plugin.getUiLanguage());
                 if (repeatText) {
                     const rDiv = document.createElement("div");
                     rDiv.className = "dida-task-repeat-rule";
@@ -606,7 +609,7 @@ export class TimelineViewModal {
                 const subSpan = item.createEl("span", { cls: "dida-subtask-count" });
                 setTextWithIcon(subSpan, `${activeCount}/${task.items.length}`, "list-todo");
                 subSpan.addClass("dida-task-count-base", "dida-task-count-sub");
-                subSpan.title = "点击查看检查项";
+                subSpan.title = this.plugin.t("timeline.checkItemsHint");
                 subSpan.onclick = () => this.toggleTimelineTaskDetails(item, task, "check-items-tab");
             }
 
@@ -616,7 +619,7 @@ export class TimelineViewModal {
                 const childSpan = item.createEl("span", { cls: "dida-child-task-count" });
                 childSpan.addClass("dida-task-count-base", "dida-task-count-child", "dida-child-task-count-static");
                 this.renderChildCountBadge(childSpan, completedChilds, childTasks.length);
-                childSpan.title = "子任务数";
+                childSpan.title = this.plugin.t("timeline.subtaskCount");
             }
 
             const dateSpan = item.createEl("span", { cls: "dida-task-due-date" });
@@ -639,7 +642,7 @@ export class TimelineViewModal {
                 dateSpan.classList.add("no-date");
             }
             dateSpan.addClass("dida-clickable-date");
-            dateSpan.title = "点击设置到期日期";
+            dateSpan.title = this.plugin.t("timeline.setDueDate");
             dateSpan.onclick = (e) => {
                 e.stopPropagation();
                 const idx = this.plugin.settings.tasks.findIndex(t => t.didaId === task.didaId);
@@ -656,7 +659,7 @@ export class TimelineViewModal {
             delBtn.onclick = async (e) => {
                 e.stopPropagation();
                 e.preventDefault();
-                if (confirm(`确定要删除任务"${task.title}"吗？`)) {
+                if (confirm(this.plugin.t("timeline.deleteConfirm", { title: task.title }))) {
                     const idx = this.plugin.settings.tasks.findIndex(t => t.didaId === task.didaId);
                     if (idx !== -1) {
                         await this.plugin.deleteTask(idx);
@@ -681,7 +684,8 @@ export class TimelineViewModal {
             await this.plugin.addTask(title, project.name, project.id, true, null, schedule);
             this.renderTimelineView();
         }, {
-            projects: projects.length > 0 ? projects : [{ id: "inbox", name: "收集箱" }],
+            plugin: this.plugin,
+            projects: projects.length > 0 ? projects : [{ id: "inbox", name: INBOX_PROJECT_NAME }],
             defaultProjectId: "inbox",
             defaultDate: this.selectedDate,
             triggerElement,
@@ -711,15 +715,15 @@ export class TimelineViewModal {
             currentTask.items = currentTask.items || [];
 
             const nav = details.createDiv("dida-task-tab-nav");
-            const taskTabBtn = nav.createEl("button", { text: "任务", cls: initialTab === "task-tab" ? "dida-tab-btn active" : "dida-tab-btn" });
-            const checkTabBtn = nav.createEl("button", { text: "检查项", cls: initialTab === "check-items-tab" ? "dida-tab-btn active" : "dida-tab-btn" });
+            const taskTabBtn = nav.createEl("button", { text: this.plugin.t("timeline.tabTask"), cls: initialTab === "task-tab" ? "dida-tab-btn active" : "dida-tab-btn" });
+            const checkTabBtn = nav.createEl("button", { text: this.plugin.t("timeline.tabCheckItems"), cls: initialTab === "check-items-tab" ? "dida-tab-btn active" : "dida-tab-btn" });
 
             const contentArea = details.createDiv("dida-task-content-area");
             const taskTab = contentArea.createDiv(initialTab === "task-tab" ? "dida-tab-content active" : "dida-tab-content");
             taskTab.id = "task-tab";
             const titleRow = taskTab.createDiv("dida-task-detail-title");
             titleRow.addClass("dida-detail-title-row");
-            titleRow.createEl("strong", { text: "标题：" });
+            titleRow.createEl("strong", { text: this.plugin.t("timeline.fieldTitle") });
             const titleInput = titleRow.createEl("input", { type: "text", value: currentTask.title, cls: "dida-task-title-input" });
             titleInput.addClass("dida-detail-title-input-grow");
             const contentRow = taskTab.createDiv("dida-task-detail-content");
@@ -728,12 +732,12 @@ export class TimelineViewModal {
             if (currentTask.kind === "CHECKLIST") {
                 contentField = "desc";
                 contentValue = currentTask.desc || "";
-                contentRow.createEl("strong", { text: "描述内容：" });
+                contentRow.createEl("strong", { text: this.plugin.t("timeline.fieldDesc") });
             } else {
-                contentRow.createEl("strong", { text: "内容：" });
+                contentRow.createEl("strong", { text: this.plugin.t("timeline.fieldContent") });
             }
             const contentTextarea = contentRow.createEl("textarea", { cls: "dida-task-content-textarea" });
-            contentTextarea.placeholder = "内容...";
+            contentTextarea.placeholder = this.plugin.t("timeline.contentPlaceholder");
             contentTextarea.value = contentValue;
 
             const checkTab = contentArea.createDiv(initialTab === "check-items-tab" ? "dida-tab-content active" : "dida-tab-content");
@@ -750,7 +754,7 @@ export class TimelineViewModal {
                             type: "text",
                             value: item.title,
                             cls: item.status === 1 ? "dida-task-completed" : "dida-task-title-input",
-                            placeholder: "检查项标题"
+                            placeholder: this.plugin.t("timeline.checkItemPlaceholder")
                         });
                         cb.onchange = () => {
                             item.status = cb.checked ? 1 : 0;
@@ -791,7 +795,7 @@ export class TimelineViewModal {
             const addCheckItemBtn = checkTab.createEl("button", { cls: "dida-project-add-task-btn" });
             setIconElement(addCheckItemBtn, "plus");
             addCheckItemBtn.addClass("dida-floating-add-btn");
-            addCheckItemBtn.title = "添加检查项";
+            addCheckItemBtn.title = this.plugin.t("timeline.addCheckItem");
             addCheckItemBtn.onclick = () => {
                 if (!currentTask.items) currentTask.items = [];
                 currentTask.items.push({

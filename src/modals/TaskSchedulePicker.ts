@@ -1,4 +1,6 @@
 import { App } from "obsidian";
+import DidaSyncPlugin from "../main";
+import { formatWeekdayNarrow, formatYearMonth, MessageKey, MessageParams, ResolvedLanguage, translateDefault, weekdayDate } from "../i18n";
 import {
     clearTaskSchedule,
     createTaskScheduleState,
@@ -14,6 +16,7 @@ import { CompactRepeatSettings } from "./CompactRepeatSettings";
 
 export interface TaskSchedulePickerOptions extends TaskScheduleStateOptions {
     dateOnly?: boolean;
+    plugin?: DidaSyncPlugin | null;
 }
 
 export interface TaskScheduleActions {
@@ -141,6 +144,7 @@ export class ScopedPopup {
 
 export class TaskSchedulePicker {
     app: App;
+    plugin: DidaSyncPlugin | null;
     state: TaskScheduleState;
     dateOnly: boolean;
     root: HTMLElement | null = null;
@@ -150,11 +154,20 @@ export class TaskSchedulePicker {
     timeRow: HTMLElement | null = null;
     repeatButton: HTMLButtonElement | null = null;
 
-    constructor(app: App, options: TaskSchedulePickerOptions = {}) {
+    constructor(app: App, options: TaskSchedulePickerOptions) {
         this.app = app;
+        this.plugin = options.plugin || null;
         this.state = createTaskScheduleState(options);
         this.dateOnly = options.dateOnly === true;
         if (this.dateOnly) this.state.isAllDay = true;
+    }
+
+    private t(key: MessageKey, params?: MessageParams): string {
+        return this.plugin ? this.plugin.t(key, params) : translateDefault(key, params);
+    }
+
+    private getLanguage(): ResolvedLanguage {
+        return this.plugin ? this.plugin.getUiLanguage() : "en";
     }
 
     render(container: HTMLElement): void {
@@ -168,7 +181,7 @@ export class TaskSchedulePicker {
     private renderModeAndTime(container: HTMLElement): void {
         const controls = container.createDiv("dida-task-schedule-controls");
         this.modeSwitch = controls.createDiv("dida-schedule-mode-switch");
-        this.modeButton = this.modeSwitch.createEl("button", { text: "全天" });
+        this.modeButton = this.modeSwitch.createEl("button", { text: this.t("schedule.allDay") });
         this.modeButton.onclick = () => {
             this.state.isAllDay = !this.state.isAllDay;
             this.state.isScheduled = true;
@@ -176,9 +189,9 @@ export class TaskSchedulePicker {
         };
 
         this.timeRow = controls.createDiv("dida-task-schedule-time-row");
-        this.timeRow.createSpan({ text: "开始" });
+        this.timeRow.createSpan({ text: this.t("schedule.start") });
         const startSelect = this.createTimeSelect(this.state.startMinutes, false);
-        this.timeRow.createSpan({ text: "至" });
+        this.timeRow.createSpan({ text: this.t("schedule.to") });
         const endSelect = this.createTimeSelect(this.state.endMinutes, true);
         startSelect.onchange = () => {
             setTaskScheduleStartMinutes(this.state, Number(startSelect.value));
@@ -209,17 +222,17 @@ export class TaskSchedulePicker {
         if (!this.root) return;
         this.root.toggleClass("is-unscheduled", !this.state.isScheduled);
         if (this.modeButton) {
-            const currentMode = this.state.isAllDay ? "全天" : "时间段";
-            const nextMode = this.state.isAllDay ? "时间段" : "全天";
+            const currentMode = this.state.isAllDay ? this.t("schedule.allDay") : this.t("schedule.timed");
+            const nextMode = this.state.isAllDay ? this.t("schedule.timed") : this.t("schedule.allDay");
             this.modeButton.textContent = currentMode;
-            this.modeButton.title = `切换到${nextMode}`;
-            this.modeButton.setAttribute("aria-label", `当前${currentMode}，点击切换到${nextMode}`);
+            this.modeButton.title = this.t("schedule.switchToMode", { mode: nextMode });
+            this.modeButton.setAttribute("aria-label", this.t("schedule.currentModeSwitch", { current: currentMode, next: nextMode }));
             this.modeButton.toggleClass("is-timed", !this.state.isAllDay);
         }
         this.timeRow?.setCssStyles({ display: !this.state.isAllDay && this.state.isScheduled ? "flex" : "none" });
         if (this.repeatButton) {
             this.repeatButton.disabled = !this.state.isScheduled;
-            this.repeatButton.textContent = this.state.repeatFlag ? "已设置重复" : "重复设置";
+            this.repeatButton.textContent = this.state.repeatFlag ? this.t("repeat.set") : this.t("repeat.title");
         }
         this.renderCalendar();
     }
@@ -228,7 +241,7 @@ export class TaskSchedulePicker {
         if (!this.calendar) return;
         this.calendar.empty();
         const nav = this.calendar.createDiv("dida-calendar-nav");
-        nav.createEl("button", { text: "‹", attr: { "aria-label": "上个月" } }).onclick = () => {
+        nav.createEl("button", { text: "‹", attr: { "aria-label": this.t("schedule.prevMonth") } }).onclick = () => {
             this.state.displayMonth--;
             if (this.state.displayMonth < 0) {
                 this.state.displayMonth = 11;
@@ -236,8 +249,9 @@ export class TaskSchedulePicker {
             }
             this.renderCalendar();
         };
-        nav.createSpan({ text: `${this.state.displayYear}年${this.state.displayMonth + 1}月`, cls: "dida-calendar-month-label" });
-        nav.createEl("button", { text: "›", attr: { "aria-label": "下个月" } }).onclick = () => {
+        const language = this.getLanguage();
+        nav.createSpan({ text: formatYearMonth(this.state.displayYear, this.state.displayMonth, language), cls: "dida-calendar-month-label" });
+        nav.createEl("button", { text: "›", attr: { "aria-label": this.t("schedule.nextMonth") } }).onclick = () => {
             this.state.displayMonth++;
             if (this.state.displayMonth > 11) {
                 this.state.displayMonth = 0;
@@ -247,7 +261,9 @@ export class TaskSchedulePicker {
         };
 
         const week = this.calendar.createDiv("dida-calendar-week-header");
-        ["日", "一", "二", "三", "四", "五", "六"].forEach(day => week.createDiv({ text: day, cls: "dida-calendar-week-day" }));
+        for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+            week.createDiv({ text: formatWeekdayNarrow(weekdayDate(dayIndex), language), cls: "dida-calendar-week-day" });
+        }
         const grid = this.calendar.createDiv("dida-calendar-grid");
         const first = new Date(this.state.displayYear, this.state.displayMonth, 1);
         const cursor = new Date(first);
@@ -272,12 +288,12 @@ export class TaskSchedulePicker {
 
     renderActions(container: HTMLElement, actions: TaskScheduleActions): void {
         const footer = container.createDiv("dida-calendar-buttons dida-task-schedule-actions");
-        const clearButton = footer.createEl("button", { text: "清除" });
+        const clearButton = footer.createEl("button", { text: this.t("schedule.clear") });
         clearButton.onclick = () => {
             clearTaskSchedule(this.state);
             this.updateVisibility();
         };
-        const todayButton = footer.createEl("button", { text: "今天" });
+        const todayButton = footer.createEl("button", { text: this.t("schedule.today") });
         todayButton.onclick = () => {
             this.state.selectedDate = new Date();
             this.state.selectedDate.setHours(0, 0, 0, 0);
@@ -286,14 +302,14 @@ export class TaskSchedulePicker {
             this.state.isScheduled = true;
             this.updateVisibility();
         };
-        this.repeatButton = footer.createEl("button", { text: this.state.repeatFlag ? "已设置重复" : "重复设置" });
-        this.repeatButton.onclick = () => new CompactRepeatSettings(this.app, rule => {
+        this.repeatButton = footer.createEl("button", { text: this.state.repeatFlag ? this.t("repeat.set") : this.t("repeat.title") });
+        this.repeatButton.onclick = () => new CompactRepeatSettings(this.app, this.plugin, rule => {
             this.state.repeatFlag = rule;
-            if (this.repeatButton) this.repeatButton.textContent = rule ? "已设置重复" : "重复设置";
+            if (this.repeatButton) this.repeatButton.textContent = rule ? this.t("repeat.set") : this.t("repeat.title");
         }, this.repeatButton!).show();
         if (this.dateOnly) this.repeatButton.setCssStyles({ display: "none" });
         this.repeatButton.disabled = !this.state.isScheduled;
-        footer.createEl("button", { text: "取消" }).onclick = actions.onCancel;
+        footer.createEl("button", { text: this.t("common.cancel") }).onclick = actions.onCancel;
         const primary = footer.createEl("button", { text: actions.primaryLabel, cls: "mod-cta" });
         primary.onclick = async () => {
             primary.disabled = true;

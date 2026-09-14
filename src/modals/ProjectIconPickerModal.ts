@@ -24,23 +24,23 @@ export class ProjectIconPickerModal extends Modal {
         const content = this.contentEl;
         content.empty();
         content.addClass("dida-icon-picker-modal");
-        content.createEl("h3", { text: `设置项目图标：${this.project.name}` });
+        content.createEl("h3", { text: this.plugin.t("modal.iconPicker.title", { name: this.plugin.getProjectDisplayName(this.project.name) }) });
 
         const searchInput = content
             .createDiv("dida-icon-search-container")
             .createEl("input", {
                 type: "text",
-                placeholder: "输入 Lucide 名称搜索，例如 folder、briefcase、book-open"
+                placeholder: this.plugin.t("modal.iconPicker.searchPlaceholder")
             });
         searchInput.addClass("dida-icon-search-input");
 
         const grid = content.createDiv("dida-icon-grid-container");
         const buttonRow = content.createDiv("dida-icon-button-container");
-        buttonRow.createEl("button", { text: "恢复默认" }).addEventListener("click", async () => {
+        buttonRow.createEl("button", { text: this.plugin.t("modal.iconPicker.reset") }).addEventListener("click", async () => {
             await this.onSelect("");
             this.close();
         });
-        buttonRow.createEl("button", { text: "取消" }).addEventListener("click", () => this.close());
+        buttonRow.createEl("button", { text: this.plugin.t("common.cancel") }).addEventListener("click", () => this.close());
 
         const renderIcons = (keyword: string = "") => {
             grid.empty();
@@ -51,7 +51,7 @@ export class ProjectIconPickerModal extends Modal {
                 .filter((name) => !query || name.toLowerCase().includes(query))
                 .slice(0, 200);
             if (this.filteredIcons.length === 0) {
-                grid.createDiv({ text: "没有找到匹配图标", cls: "dida-icon-no-results" });
+                grid.createDiv({ text: this.plugin.t("modal.iconPicker.noResults"), cls: "dida-icon-no-results" });
                 return;
             }
             this.filteredIcons.forEach((name, index) => {

@@ -1,3 +1,4 @@
+import { MessageKey, MessageParams, translateDefault, Translator } from "../i18n";
 import { SyncPhase, SyncRunState } from "../types";
 
 export interface SyncRunContext {
@@ -12,6 +13,7 @@ interface SyncRunCoordinatorOptions<TResult> {
     runOnce(context: SyncRunContext): Promise<TResult>;
     onStateChange?(state: SyncRunState): void;
     onTimeout?(error: Error): void;
+    translate?: Translator;
 }
 
 export class SyncRunCoordinator<TResult> {
@@ -24,10 +26,15 @@ export class SyncRunCoordinator<TResult> {
         queued: false,
         startedAt: null,
         finishedAt: null,
-        message: "未同步"
+        message: this.t("syncRun.notSynced")
     };
 
     constructor(private options: SyncRunCoordinatorOptions<TResult>) { }
+
+    private t(key: MessageKey, params?: MessageParams): string {
+        if (this.options.translate) return this.options.translate(key, params);
+        return translateDefault(key, params);
+    }
 
     get isRunning() {
         return this.state.isRunning;
@@ -45,7 +52,7 @@ export class SyncRunCoordinator<TResult> {
         if (this.disposed) return Promise.resolve(this.options.createSkippedResult());
         if (this.activePromise) {
             this.rerunRequested = true;
-            this.updateState({ phase: "queued", queued: true, message: "当前同步结束后再次同步" });
+            this.updateState({ phase: "queued", queued: true, message: this.t("syncRun.queuedAfterCurrent") });
             return this.activePromise;
         }
 
@@ -55,7 +62,7 @@ export class SyncRunCoordinator<TResult> {
             queued: false,
             startedAt: new Date().toISOString(),
             finishedAt: null,
-            message: "正在上传本地修改"
+            message: this.t("syncRun.uploadingLocal")
         });
         const promise = this.runLoop().finally(() => {
             this.activePromise = null;
@@ -69,7 +76,7 @@ export class SyncRunCoordinator<TResult> {
         return promise;
     }
 
-    dispose(message: string = "同步已停止") {
+    dispose(message: string = this.t("syncRun.stopped")) {
         this.disposed = true;
         this.rerunRequested = false;
         this.updateState({
@@ -109,7 +116,7 @@ export class SyncRunCoordinator<TResult> {
                 work,
                 new Promise<never>((_resolve, reject) => {
                     timer = setTimeout(() => {
-                        const error = new Error(`同步运行超时（${Math.round(timeoutMs / 1000)} 秒）`);
+                        const error = new Error(this.t("syncRun.timeout", { seconds: Math.round(timeoutMs / 1000) }));
                         error.name = "SyncRunTimeoutError";
                         reject(error);
                     }, timeoutMs);

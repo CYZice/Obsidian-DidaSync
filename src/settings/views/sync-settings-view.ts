@@ -10,11 +10,11 @@ export class SyncSettingsView extends AbstractSettingsView {
     }
 
     render(containerEl: HTMLElement): void {
-        containerEl.createEl("h3", { text: "基础同步" });
+        containerEl.createEl("h3", { text: this.t("settings.sync.heading.basic") });
 
         new Setting(containerEl)
-            .setName("自动同步")
-            .setDesc("启用后会定期从滴答清单同步任务。")
+            .setName(this.t("settings.sync.autoSync.name"))
+            .setDesc(this.t("settings.sync.autoSync.desc"))
             .addToggle((toggle) => toggle
                 .setValue(this.plugin.settings.autoSync)
                 .onChange(async (value) => {
@@ -24,8 +24,8 @@ export class SyncSettingsView extends AbstractSettingsView {
                 }));
 
         new Setting(containerEl)
-            .setName("同步间隔")
-            .setDesc("自动同步间隔时间，单位为分钟。")
+            .setName(this.t("settings.sync.interval.name"))
+            .setDesc(this.t("settings.sync.interval.desc"))
             .addSlider((slider) => slider
                 .setLimits(5, 120, 5)
                 .setValue(this.plugin.settings.syncInterval)
@@ -37,22 +37,22 @@ export class SyncSettingsView extends AbstractSettingsView {
                 }));
 
         new Setting(containerEl)
-            .setName("手动同步任务")
-            .setDesc("立即执行任务双向同步。")
+            .setName(this.t("settings.sync.manual.name"))
+            .setDesc(this.t("settings.sync.manual.desc"))
             .addButton((button) => button
-                .setButtonText("开始同步")
+                .setButtonText(this.t("settings.sync.manual.button"))
                 .onClick(async () => {
                     await this.plugin.manualSync();
                 }));
 
-        containerEl.createEl("h3", { text: "清单显示" });
+        containerEl.createEl("h3", { text: this.t("settings.sync.heading.visibility") });
 
         new Setting(containerEl)
-            .setName("显示归档清单")
-            .setDesc("控制任务侧边栏和清单选择器是否显示已归档清单。")
+            .setName(this.t("settings.sync.showArchived.name"))
+            .setDesc(this.t("settings.sync.showArchived.desc"))
             .addDropdown((dropdown) => dropdown
-                .addOption("false", "隐藏归档清单")
-                .addOption("true", "显示归档清单")
+                .addOption("false", this.t("settings.sync.showArchived.hide"))
+                .addOption("true", this.t("settings.sync.showArchived.show"))
                 .setValue(this.plugin.settings.showArchivedProjects.toString())
                 .onChange(async (value) => {
                     this.plugin.settings.showArchivedProjects = value === "true";
@@ -67,10 +67,10 @@ export class SyncSettingsView extends AbstractSettingsView {
             .filter((project) => !this.plugin.isProjectVisible(project.id, project.name))
             .length;
         new Setting(containerEl)
-            .setName("清单显示")
-            .setDesc(`收集箱固定显示；当前隐藏 ${hiddenCount} / ${configurableProjects.length} 个清单。`)
+            .setName(this.t("settings.sync.visibility.name"))
+            .setDesc(this.t("settings.sync.visibility.desc", { hidden: hiddenCount, total: configurableProjects.length }))
             .addButton((button) => button
-                .setButtonText("管理清单显示")
+                .setButtonText(this.t("settings.sync.visibility.button"))
                 .onClick(() => {
                     new ProjectVisibilityModal(this.app, this.plugin, () => {
                         containerEl.empty();
@@ -78,14 +78,14 @@ export class SyncSettingsView extends AbstractSettingsView {
                     }).open();
                 }));
 
-        containerEl.createEl("h3", { text: "Obsidian 原生任务同步" });
+        containerEl.createEl("h3", { text: this.t("settings.sync.heading.native") });
 
         const nativeInfo = containerEl.createDiv("dida-settings-info dida-settings-info--primary");
-        nativeInfo.setText('启用后可将 Obsidian 原生任务格式（- [ ]）同步到滴答清单，并在任务行追加跳转链接。');
+        nativeInfo.setText(this.t("settings.sync.nativeInfo"));
 
         new Setting(containerEl)
-            .setName("启用原生任务同步")
-            .setDesc('启用后，输入 "- [ ] " 时会显示操作菜单，可选择同步到滴答清单。')
+            .setName(this.t("settings.sync.nativeEnable.name"))
+            .setDesc(this.t("settings.sync.nativeEnable.desc"))
             .addToggle((toggle) => toggle
                 .setValue(this.plugin.settings.enableNativeTaskSync)
                 .onChange(async (value) => {
@@ -93,14 +93,14 @@ export class SyncSettingsView extends AbstractSettingsView {
                     await this.plugin.saveSettings();
                 }));
 
-        containerEl.createEl("h3", { text: "滴答笔记同步" });
+        containerEl.createEl("h3", { text: this.t("settings.sync.heading.notes") });
 
         const didaNoteInfo = containerEl.createDiv("dida-settings-info dida-settings-info--primary");
-        didaNoteInfo.setText("将所选清单中的滴答笔记同步到 Obsidian，并在本地与远程之间保持内容更新。");
+        didaNoteInfo.setText(this.t("settings.sync.noteInfo"));
 
         new Setting(containerEl)
-            .setName("启用滴答笔记同步")
-            .setDesc("启用后，可在侧边栏和命令面板中使用笔记同步功能。")
+            .setName(this.t("settings.sync.noteEnable.name"))
+            .setDesc(this.t("settings.sync.noteEnable.desc"))
             .addToggle((toggle) => toggle
                 .setValue(this.plugin.settings.enableDidaNoteSync)
                 .onChange(async (value) => {
@@ -110,8 +110,8 @@ export class SyncSettingsView extends AbstractSettingsView {
                 }));
 
         new Setting(containerEl)
-            .setName("笔记保存位置")
-            .setDesc("每条滴答笔记会同步为一个 Markdown 文件；留空时保存到仓库根目录。")
+            .setName(this.t("settings.sync.noteFolder.name"))
+            .setDesc(this.t("settings.sync.noteFolder.desc"))
             .addText((text) => text
                 .setPlaceholder("DidaNotes")
                 .setValue(this.plugin.settings.didaNoteSyncFolder || "DidaNotes")
@@ -121,10 +121,10 @@ export class SyncSettingsView extends AbstractSettingsView {
                 }));
 
         new Setting(containerEl)
-            .setName("同步清单")
-            .setDesc(`仅同步所选清单中的笔记；当前已选择 ${(this.plugin.settings.didaNoteSyncProjectIds || []).length} 个清单。`)
+            .setName(this.t("settings.sync.projects.name"))
+            .setDesc(this.t("settings.sync.projects.desc", { count: (this.plugin.settings.didaNoteSyncProjectIds || []).length }))
             .addButton((button) => button
-                .setButtonText("选择清单")
+                .setButtonText(this.t("settings.sync.projects.button"))
                 .onClick(() => {
                     new TaskNoteProjectPickerModal(
                         this.app,
@@ -135,8 +135,8 @@ export class SyncSettingsView extends AbstractSettingsView {
                             this.render(containerEl);
                         },
                         {
-                            title: "选择滴答笔记同步清单",
-                            selectionLabel: "笔记同步清单",
+                            title: this.t("settings.sync.notePicker.title"),
+                            selectionLabel: this.t("settings.sync.notePicker.selectionLabel"),
                             getProjectKey: (project) => project.id || "",
                             getProjects: () => this.plugin.getNoteSyncProjectConfigs(),
                             saveSelection: async (keys) => {
@@ -149,24 +149,24 @@ export class SyncSettingsView extends AbstractSettingsView {
                 }));
 
         new Setting(containerEl)
-            .setName("立即执行笔记同步")
-            .setDesc("立即同步所选清单中的笔记；如本地内容已更新，将自动同步到远程。")
+            .setName(this.t("settings.sync.runNow.name"))
+            .setDesc(this.t("settings.sync.runNow.desc"))
             .addButton((button) => button
-                .setButtonText("同步笔记")
+                .setButtonText(this.t("settings.sync.runNow.button"))
                 .onClick(async () => {
                     await this.plugin.syncDidaNotes();
                 }));
 
-        containerEl.createEl("h3", { text: "任务写入笔记" });
+        containerEl.createEl("h3", { text: this.t("settings.sync.heading.taskNote") });
 
         const noteSyncInfo = containerEl.createDiv("dida-settings-info dida-settings-info--primary");
-        noteSyncInfo.setText("将某日、某周、某月、某年或自定义时间段内的任务汇总写入笔记。");
+        noteSyncInfo.setText(this.t("settings.sync.taskNoteInfo"));
 
         new Setting(containerEl)
-            .setName("写入区块")
-            .setDesc("任务会写入这个标题下；未找到时自动创建。支持普通标题或 callout，例如 > [!todo]。")
+            .setName(this.t("settings.sync.blockHeader.name"))
+            .setDesc(this.t("settings.sync.blockHeader.desc"))
             .addText((text) => text
-                .setPlaceholder("输入目标区块标题")
+                .setPlaceholder(this.t("settings.sync.blockHeader.placeholder"))
                 .setValue(this.plugin.settings.taskNoteSyncTargetBlockHeader)
                 .onChange(async (value) => {
                     this.plugin.settings.taskNoteSyncTargetBlockHeader = value;
@@ -174,23 +174,23 @@ export class SyncSettingsView extends AbstractSettingsView {
                 }));
 
         const rootFolderSetting = new Setting(containerEl)
-            .setName("笔记保存位置")
-            .setDesc("自动创建任务汇总笔记的根文件夹。留空则保存到仓库根目录。")
+            .setName(this.t("settings.sync.rootFolder.name"))
+            .setDesc(this.t("settings.sync.rootFolder.desc"))
             .addText((text) => text
                 .setPlaceholder("DidaSync")
                 .setValue(this.plugin.settings.taskNoteSyncFolder || "DidaSync")
                 .onChange(async (value) => {
                     this.plugin.settings.taskNoteSyncFolder = value;
                     await this.plugin.saveSettings();
-                    rootFolderPreview.setText(`当前预览：${this.getTaskNoteRootFolderPreview()}`);
+                    rootFolderPreview.setText(this.getTaskNoteRootFolderPreviewText());
                 }));
-        const rootFolderPreview = this.appendSettingPreview(rootFolderSetting, `当前预览：${this.getTaskNoteRootFolderPreview()}`);
+        const rootFolderPreview = this.appendSettingPreview(rootFolderSetting, this.getTaskNoteRootFolderPreviewText());
 
         const dayPathSetting = new Setting(containerEl)
-            .setName("日记路径模式")
-            .setDesc("相对根文件夹的路径，可包含子文件夹。")
+            .setName(this.t("settings.sync.dayPath.name"))
+            .setDesc(this.t("settings.sync.pathDesc.plain"))
             .addText((text) => text
-                .setPlaceholder("YYYY/日记/YYYY-MM-DD")
+                .setPlaceholder(this.t("settings.sync.dayPath.placeholder"))
                 .setValue(this.plugin.settings.taskNoteSyncPathPatterns?.day || "")
                 .onChange(async (value) => {
                     this.plugin.settings.taskNoteSyncPathPatterns.day = value;
@@ -200,10 +200,10 @@ export class SyncSettingsView extends AbstractSettingsView {
         const dayPathPreview = this.appendSettingPreview(dayPathSetting, this.getTaskNotePathPreviewText("day"));
 
         const weekPathSetting = new Setting(containerEl)
-            .setName("周记路径模式")
-            .setDesc("相对根文件夹的路径，可包含子文件夹。支持 gggg、ww，并跟随“一周开始于”设置。")
+            .setName(this.t("settings.sync.weekPath.name"))
+            .setDesc(this.t("settings.sync.weekPath.desc"))
             .addText((text) => text
-                .setPlaceholder("gggg/周记/[W]ww")
+                .setPlaceholder(this.t("settings.sync.weekPath.placeholder"))
                 .setValue(this.plugin.settings.taskNoteSyncPathPatterns?.week || "")
                 .onChange(async (value) => {
                     this.plugin.settings.taskNoteSyncPathPatterns.week = value;
@@ -213,10 +213,10 @@ export class SyncSettingsView extends AbstractSettingsView {
         const weekPathPreview = this.appendSettingPreview(weekPathSetting, this.getTaskNotePathPreviewText("week"));
 
         const monthPathSetting = new Setting(containerEl)
-            .setName("月记路径模式")
-            .setDesc("相对根文件夹的路径，可包含子文件夹。")
+            .setName(this.t("settings.sync.monthPath.name"))
+            .setDesc(this.t("settings.sync.pathDesc.plain"))
             .addText((text) => text
-                .setPlaceholder("YYYY/月记/YYYY-MM")
+                .setPlaceholder(this.t("settings.sync.monthPath.placeholder"))
                 .setValue(this.plugin.settings.taskNoteSyncPathPatterns?.month || "")
                 .onChange(async (value) => {
                     this.plugin.settings.taskNoteSyncPathPatterns.month = value;
@@ -226,8 +226,8 @@ export class SyncSettingsView extends AbstractSettingsView {
         const monthPathPreview = this.appendSettingPreview(monthPathSetting, this.getTaskNotePathPreviewText("month"));
 
         const yearPathSetting = new Setting(containerEl)
-            .setName("年记路径模式")
-            .setDesc("相对根文件夹的路径。")
+            .setName(this.t("settings.sync.yearPath.name"))
+            .setDesc(this.t("settings.sync.yearPath.desc"))
             .addText((text) => text
                 .setPlaceholder("YYYY")
                 .setValue(this.plugin.settings.taskNoteSyncPathPatterns?.year || "")
@@ -239,8 +239,8 @@ export class SyncSettingsView extends AbstractSettingsView {
         const yearPathPreview = this.appendSettingPreview(yearPathSetting, this.getTaskNotePathPreviewText("year"));
 
         new Setting(containerEl)
-            .setName("默认每次生成新笔记")
-            .setDesc("开启后每次都新建；关闭后优先写入同名笔记，不存在时再创建。")
+            .setName(this.t("settings.sync.createNew.name"))
+            .setDesc(this.t("settings.sync.createNew.desc"))
             .addToggle((toggle) => toggle
                 .setValue(this.plugin.settings.taskNoteSyncCreateNewFile)
                 .onChange(async (value) => {
@@ -249,11 +249,11 @@ export class SyncSettingsView extends AbstractSettingsView {
                 }));
 
         new Setting(containerEl)
-            .setName("一周开始于")
-            .setDesc("影响周记的起止日期，以及 gggg / ww 的编号结果。")
+            .setName(this.t("settings.sync.weekStart.name"))
+            .setDesc(this.t("settings.sync.weekStart.desc"))
             .addDropdown((dropdown) => dropdown
-                .addOption("monday", "周一")
-                .addOption("sunday", "周日")
+                .addOption("monday", this.t("settings.sync.weekStart.monday"))
+                .addOption("sunday", this.t("settings.sync.weekStart.sunday"))
                 .setValue(this.plugin.settings.taskNoteSyncWeekStart || "monday")
                 .onChange(async (value) => {
                     this.plugin.settings.taskNoteSyncWeekStart = value as "monday" | "sunday";
@@ -262,8 +262,8 @@ export class SyncSettingsView extends AbstractSettingsView {
                 }));
 
         new Setting(containerEl)
-            .setName("同步前查询远端任务")
-            .setDesc("开启后先按时间范围查询滴答最新任务；关闭后仅使用本地缓存。")
+            .setName(this.t("settings.sync.remoteQuery.name"))
+            .setDesc(this.t("settings.sync.remoteQuery.desc"))
             .addToggle((toggle) => toggle
                 .setValue(this.plugin.settings.taskNoteSyncUseRemoteQuery)
                 .onChange(async (value) => {
@@ -272,12 +272,12 @@ export class SyncSettingsView extends AbstractSettingsView {
                 }));
 
         new Setting(containerEl)
-            .setName("默认清单来源")
+            .setName(this.t("settings.sync.scope.name"))
             .setDesc(this.getTaskNoteProjectScopePreviewText())
             .addDropdown((dropdown) => dropdown
-                .addOption("all", "全部清单")
-                .addOption("visible", "仅侧边栏可见清单")
-                .addOption("custom", "自定义清单")
+                .addOption("all", this.t("settings.sync.scope.all"))
+                .addOption("visible", this.t("settings.sync.scope.visible"))
+                .addOption("custom", this.t("settings.sync.scope.custom"))
                 .setValue(this.plugin.settings.taskNoteSyncProjectScope || "all")
                 .onChange(async (value) => {
                     this.plugin.settings.taskNoteSyncProjectScope = value as "all" | "visible" | "custom";
@@ -288,7 +288,7 @@ export class SyncSettingsView extends AbstractSettingsView {
             .addButton((button) => {
                 const isCustom = this.plugin.settings.taskNoteSyncProjectScope === "custom";
                 button
-                    .setButtonText("选择清单")
+                    .setButtonText(this.t("settings.sync.projects.button"))
                     .setDisabled(!isCustom)
                     .onClick(() => {
                         if (!isCustom) return;
@@ -307,18 +307,18 @@ export class SyncSettingsView extends AbstractSettingsView {
 
     getTaskNoteProjectScopePreviewText(): string {
         const scope = this.plugin.settings.taskNoteSyncProjectScope || "all";
-        if (scope === "all") return "同步到笔记时默认包含全部清单。";
+        if (scope === "all") return this.t("settings.sync.scope.previewAll");
         if (scope === "visible") {
             const visibleCount = this.plugin.getAvailableProjectConfigs()
                 .filter((project) => this.plugin.settings.showArchivedProjects || !project.isArchived)
                 .filter((project) => this.plugin.isProjectVisible(project.id, project.name))
                 .length;
-            return `同步到笔记时默认包含侧边栏可见清单（${visibleCount} 个）。`;
+            return this.t("settings.sync.scope.previewVisible", { count: visibleCount });
         }
         const keys = Array.isArray(this.plugin.settings.taskNoteSyncProjectKeys)
             ? this.plugin.settings.taskNoteSyncProjectKeys
             : [];
-        return `同步到笔记时默认包含自定义清单（已选择 ${keys.length} 个）。`;
+        return this.t("settings.sync.scope.previewCustom", { count: keys.length });
     }
 
     getTaskNoteRootFolderPreview(): string {
@@ -326,11 +326,15 @@ export class SyncSettingsView extends AbstractSettingsView {
         return rootFolder || "/";
     }
 
+    getTaskNoteRootFolderPreviewText(): string {
+        return this.t("settings.sync.preview", { path: this.getTaskNoteRootFolderPreview() });
+    }
+
     getTaskNotePathPreviewText(rangeType: "day" | "week" | "month" | "year"): string {
         const exampleDate = "2026-01-19";
         const range = this.plugin.taskNoteSyncManager.createRange(rangeType, exampleDate);
         const preview = this.plugin.taskNoteSyncManager.buildRelativeTargetPath(range);
-        return `当前预览：${preview}`;
+        return this.t("settings.sync.preview", { path: preview });
     }
 
     appendSettingPreview(setting: Setting, text: string): HTMLDivElement {

@@ -1,3 +1,6 @@
+import { MessageKey, MessageParams } from "../i18n";
+import { INBOX_PROJECT_NAME } from "../types";
+
 export interface ProjectTaskSnapshot {
     tasks: any[];
     successfulProjectIds: string[];
@@ -15,6 +18,7 @@ interface TaskRemoteSnapshotLoaderHost {
         buildApiUrl(path: string): string;
         makeAuthenticatedRequest(url: string): Promise<any>;
     };
+    t(key: MessageKey, params?: MessageParams): string;
 }
 
 export class TaskRemoteSnapshotLoader {
@@ -45,7 +49,7 @@ export class TaskRemoteSnapshotLoader {
                 const display = projectMap.get(projectId);
                 for (const task of fetched.tasks) {
                     task.projectId = projectId;
-                    task.projectName = projectId === "inbox" ? "收集箱" : project.name;
+                    task.projectName = projectId === "inbox" ? INBOX_PROJECT_NAME : project.name;
                     task.projectColor = display?.color;
                     task.projectClosed = display?.closed;
                     task.projectViewMode = display?.viewMode;
@@ -75,7 +79,7 @@ export class TaskRemoteSnapshotLoader {
         if (!fetched.succeeded) return { tasks: [], succeeded: false, failure: `inbox：${fetched.failure}` };
         for (const task of fetched.tasks) {
             task.projectId = normalizeProjectId(task.projectId);
-            task.projectName = "收集箱";
+            task.projectName = INBOX_PROJECT_NAME;
             task.projectColor = project?.color;
             task.projectClosed = project?.closed;
             task.projectViewMode = project?.viewMode;
@@ -86,7 +90,7 @@ export class TaskRemoteSnapshotLoader {
     }
 
     private async fetchFirstValid(paths: string[], filterTask?: (projectId: string | undefined) => boolean) {
-        let failure = "未能获取任务数据";
+        let failure = this.host.t("error.snapshotFetchFailed");
         for (const path of paths) {
             try {
                 const response = await this.host.apiClient.makeAuthenticatedRequest(this.host.apiClient.buildApiUrl(path));
@@ -100,7 +104,7 @@ export class TaskRemoteSnapshotLoader {
                 else if (Array.isArray(payload?.tasks)) tasks = payload.tasks;
                 else if (Array.isArray(payload?.data)) tasks = payload.data;
                 if (!tasks) {
-                    failure = `响应格式无效（HTTP ${response.status}）`;
+                    failure = this.host.t("error.snapshotInvalidResponse", { status: response.status });
                     continue;
                 }
                 if (path === "/task" && filterTask) tasks = tasks.filter(task => filterTask(task.projectId));

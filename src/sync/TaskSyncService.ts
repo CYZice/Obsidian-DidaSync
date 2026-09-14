@@ -10,7 +10,7 @@ import { RemoteCommandExecutor } from "../sync/RemoteCommandExecutor";
 import { PersistentProjectionQueue } from "../sync/PersistentProjectionQueue";
 import { TaskRemoteSnapshotLoader } from "../sync/TaskRemoteSnapshotLoader";
 import { reconcileMissingRemoteTasks, RemoteTaskVerification, verifyMissingRemoteTask } from "../sync/RemoteTaskReconciler";
-import { DidaTask, PendingPlacementOperationPayload, PendingSyncOperation, PendingSyncOperationType, SyncFailureDetail, SyncResult, SyncRunState } from "../types";
+import { DidaTask, INBOX_PROJECT_NAME, PendingPlacementOperationPayload, PendingSyncOperation, PendingSyncOperationType, SyncFailureDetail, SyncResult, SyncRunState } from "../types";
 import { ensureTaskCompletedTime, normalizeRemoteCompletedTime } from "../utils";
 import { TASK_VIEW_TYPE, TaskView } from "../views/TaskView";
 
@@ -48,7 +48,8 @@ export class TaskSyncService {
                 this.isSyncing = state.isRunning;
                 if (typeof this.plugin.refreshTaskView === "function") this.plugin.refreshTaskView();
             },
-            onTimeout: () => this.plugin.updateStatusBar("同步超时")
+            onTimeout: () => this.plugin.updateStatusBar(this.plugin.t("status.syncTimeout")),
+            translate: (key, params) => this.plugin.t(key, params)
         });
     }
 
@@ -156,7 +157,7 @@ export class TaskSyncService {
         for (const item of candidates) {
             const id = typeof item?.projectId === "string" ? item.projectId : item?.id;
             const name = typeof item?.projectName === "string" ? item.projectName : item?.name;
-            if (id && id !== "inbox" && id.startsWith("inbox") && (!name || name === "收集箱" || String(name).toLowerCase() === "inbox")) {
+            if (id && id !== "inbox" && id.startsWith("inbox") && (!name || name === INBOX_PROJECT_NAME || String(name).toLowerCase() === "inbox")) {
                 this.plugin.settings.remoteInboxProjectId = id;
                 await this.plugin.saveSettings();
                 return id;
@@ -168,11 +169,11 @@ export class TaskSyncService {
             method: "POST",
             body: JSON.stringify({ title, content: "", desc: "" })
         } as any);
-        if (!res.ok) throw new Error("无法创建临时任务以识别远端收集箱 ID: " + res.status);
+        if (!res.ok) throw new Error(this.plugin.t("error.inboxIdFromTask", { status: res.status }));
         const data = await this.readResponseJson<any>(res, {});
         const inboxId = typeof data.projectId === "string" ? data.projectId : "";
         if (!inboxId || inboxId === "inbox" || !inboxId.startsWith("inbox")) {
-            throw new Error("无法从临时任务识别远端收集箱 ID");
+            throw new Error(this.plugin.t("error.inboxIdMissing"));
         }
         this.plugin.settings.remoteInboxProjectId = inboxId;
         await this.plugin.saveSettings();
@@ -188,7 +189,7 @@ export class TaskSyncService {
     }
 
     private async resolveRemoteProjectId(projectId: string | null | undefined): Promise<string> {
-        if (projectId === "local") throw new Error("本地项目不能同步到滴答清单远端");
+        if (projectId === "local") throw new Error(this.plugin.t("error.localProjectNoRemote"));
         if (this.isInboxProjectId(projectId)) return this.ensureRemoteInboxProjectId();
         return projectId as string;
     }
@@ -248,7 +249,7 @@ export class TaskSyncService {
         let current: DidaTask | undefined = task;
         while (current) {
             const keys = this.getTaskIdentityKeys(current);
-            if (keys.some(key => seen.has(key))) throw new Error("检测到循环父任务关系");
+            if (keys.some(key => seen.has(key))) throw new Error(this.plugin.t("error.cyclicParent"));
             for (const key of keys) seen.add(key);
             current = this.findTaskByAnyId(current.parentId);
         }
@@ -264,19 +265,19 @@ export class TaskSyncService {
 
         const taskKeys = new Set(this.getTaskIdentityKeys(task));
         if (this.getTaskIdentityKeys(parent).some(key => taskKeys.has(key))) {
-            throw new Error("不能将任务设为自己的父任务");
+            throw new Error(this.plugin.t("error.selfParent"));
         }
 
         const parentKey = parent.id || parent.didaId;
         if (parentKey) {
-            if (seen.has(parentKey)) throw new Error("检测到循环父任务关系");
+            if (seen.has(parentKey)) throw new Error(this.plugin.t("error.cyclicParent"));
             seen.add(parentKey);
         }
 
         if (!parent.didaId) {
             await this.createTaskInDidaList(parent, false);
         }
-        if (!parent.didaId) throw new Error("父任务未同步，无法同步子任务");
+        if (!parent.didaId) throw new Error(this.plugin.t("error.parentNotSynced"));
 
         if (task.parentId !== parent.didaId) {
             task.parentId = parent.didaId;
@@ -334,7 +335,7 @@ export class TaskSyncService {
                 item.id === operation.localTaskId || (!!operation.didaId && item.didaId === operation.didaId)
             );
             if (!this.outbox.isDue(operation)) {
-                const reason = operation.lastError || (operation.state === "permanent_failure" ? "同步操作已停止自动重试" : "同步操作正在等待重试");
+                const reason = operation.lastError || (operation.state === "permanent_failure" ? this.plugin.t("sync.retryStopped") : this.plugin.t("sync.retryWaiting"));
                 failed.push(reason);
                 failures.push({
                     localTaskId: operation.localTaskId,
@@ -362,7 +363,7 @@ export class TaskSyncService {
                 });
                 uploaded++;
             } catch (error: any) {
-                const reason = operation.lastError || "未知上传错误";
+                const reason = operation.lastError || this.plugin.t("sync.unknownUploadError");
                 failed.push(reason);
                 failures.push({
                     localTaskId: operation.localTaskId,
@@ -384,7 +385,7 @@ export class TaskSyncService {
     private getPlacementPayload(operation: PendingSyncOperation): PendingPlacementOperationPayload {
         const payload = operation.payload;
         if (!payload || typeof payload !== "object" || !("fromProjectId" in payload) || !("toProjectId" in payload)) {
-            throw new Error("位置同步数据缺失");
+            throw new Error(this.plugin.t("error.placementPayloadMissing"));
         }
         return payload as PendingPlacementOperationPayload;
     }
@@ -432,7 +433,7 @@ export class TaskSyncService {
         if (!task.didaId) {
             await this.updatePlacementState(task, true);
             await this.createTaskInDidaList(task, false, false);
-            if (!task.didaId) throw new Error("任务创建后未返回远端 ID");
+            if (!task.didaId) throw new Error(this.plugin.t("error.taskMissingRemoteId"));
         }
 
         const payload = this.getPlacementPayload(operation);
@@ -502,7 +503,7 @@ export class TaskSyncService {
             return payload.toParentId;
         }
         if (!parent.didaId) await this.createTaskInDidaList(parent, false);
-        if (!parent.didaId) throw new Error("父任务未同步，无法同步位置");
+        if (!parent.didaId) throw new Error(this.plugin.t("error.parentNotSyncedPlacement"));
         task.parentId = parent.didaId;
         payload.toParentId = parent.didaId;
         payload.parentTaskId = parent.id;
@@ -514,7 +515,7 @@ export class TaskSyncService {
         const result: SyncResult = { outcome: "success", uploaded: 0, downloaded: 0, failedScopes: [], failedOperations: [], cleanupPerformed: false };
         if (this.plugin.settings.accessToken) {
             try {
-                this.plugin.updateStatusBar("同步中...");
+                this.plugin.updateStatusBar(this.plugin.t("status.syncing"));
                 for (const task of this.sortTasksForUpload(this.plugin.settings.tasks || [])) {
                     if (this.plugin.isTaskListItem && !this.plugin.isTaskListItem(task)) continue;
                     if (!task.didaId && !this.hasPendingOperation(task)) await this.queueOperation(task, "upsert");
@@ -524,16 +525,16 @@ export class TaskSyncService {
                 result.failedOperations = flushed.failed;
                 result.failedDetails = flushed.failures;
                 result.outcome = flushed.failed.length > 0 ? (flushed.uploaded > 0 ? "partial" : "failed") : "success";
-                this.plugin.updateStatusBar(result.outcome === "success" ? "已连接" : result.outcome === "partial" ? "部分同步失败" : "同步失败");
+                this.plugin.updateStatusBar(result.outcome === "success" ? this.plugin.t("status.connected") : result.outcome === "partial" ? this.plugin.t("status.partialFailure") : this.plugin.t("notice.syncFailedShort"));
             } catch (e) {
                 result.outcome = "failed";
                 result.failedOperations.push(e instanceof Error ? e.message : String(e));
-                this.plugin.updateStatusBar("同步失败");
+                this.plugin.updateStatusBar(this.plugin.t("notice.syncFailedShort"));
             }
         } else {
-            new Notice("请先进行OAuth认证");
+            new Notice(this.plugin.t("error.oauthRequired"));
             result.outcome = "failed";
-            result.failedOperations.push("未认证");
+            result.failedOperations.push(this.plugin.t("sync.unauthenticated"));
         }
         return result;
     }
@@ -561,7 +562,7 @@ export class TaskSyncService {
         const wasRunning = this.syncRunCoordinator.isRunning;
         const result = this.syncRunCoordinator.run();
         if (wasRunning) {
-            this.plugin.updateStatusBar("已排队再次同步");
+            this.plugin.updateStatusBar(this.plugin.t("status.queuedAgain"));
         }
         return result;
     }
@@ -573,12 +574,12 @@ export class TaskSyncService {
     private async runSingleBidirectionalSync(context: SyncRunContext): Promise<SyncResult> {
         const failed = this.emptySyncResult("failed");
         try {
-            context.setPhase("fetching", "正在拉取远端任务快照");
-            this.plugin.updateStatusBar("拉取远端任务...");
+            context.setPhase("fetching", this.plugin.t("phase.fetchingSnapshot"));
+            this.plugin.updateStatusBar(this.plugin.t("status.pulling"));
             const download = await this.syncFromDidaList(true);
-            context.setPhase("planning", "正在规划任务同步操作");
-            context.setPhase("uploading", "正在执行本地待同步操作");
-            this.plugin.updateStatusBar("上传本地修改...");
+            context.setPhase("planning", this.plugin.t("phase.planning"));
+            context.setPhase("uploading", this.plugin.t("phase.executingQueue"));
+            this.plugin.updateStatusBar(this.plugin.t("status.uploading"));
             const upload = await this.syncNewTasksToDidaList();
             const failedOperations = [...upload.failedOperations, ...download.failedOperations];
             const failedDetails = [...(upload.failedDetails || []), ...(download.failedDetails || [])];
@@ -599,14 +600,14 @@ export class TaskSyncService {
             };
             context.setPhase(
                 outcome === "failed" ? "failed" : "completed",
-                outcome === "success" ? "同步完成" : outcome === "partial" ? "部分同步失败" : "同步失败"
+                outcome === "success" ? this.plugin.t("status.syncDone") : outcome === "partial" ? this.plugin.t("status.partialFailure") : this.plugin.t("notice.syncFailedShort")
             );
-            this.plugin.updateStatusBar(outcome === "success" ? "已连接" : outcome === "partial" ? "部分同步失败" : "同步失败");
+            this.plugin.updateStatusBar(outcome === "success" ? this.plugin.t("status.connected") : outcome === "partial" ? this.plugin.t("status.partialFailure") : this.plugin.t("notice.syncFailedShort"));
             return result;
         } catch (error: any) {
             const message = error?.message || String(error);
             context.setPhase("failed", message);
-            this.plugin.updateStatusBar("同步失败");
+            this.plugin.updateStatusBar(this.plugin.t("notice.syncFailedShort"));
             return { ...failed, failedOperations: [message] };
         }
     }
@@ -614,13 +615,13 @@ export class TaskSyncService {
     async syncFromDidaList(lockHeld: boolean = false): Promise<SyncResult> {
         const result: SyncResult = { outcome: "success", uploaded: 0, downloaded: 0, failedScopes: [], failedOperations: [], cleanupPerformed: false };
         if (!this.plugin.settings.accessToken) {
-            new Notice("请先进行OAuth认证");
+            new Notice(this.plugin.t("error.oauthRequired"));
             return { ...result, outcome: "failed", failedScopes: ["authentication"] };
         }
         if (this.plugin.isReverseUpdating || (!lockHeld && this.isSyncing)) return { ...result, outcome: "skipped" };
         if (!lockHeld) this.isSyncing = true;
         try {
-            this.plugin.updateStatusBar("同步中...");
+            this.plugin.updateStatusBar(this.plugin.t("status.syncing"));
             const tasks: any[] = [];
             let projectListSucceeded = false;
             let inboxSucceeded = false;
@@ -653,7 +654,7 @@ export class TaskSyncService {
                         if (!projectMap.has("inbox")) {
                             projectMap.set("inbox", {
                                 id: "inbox",
-                                name: "收集箱",
+                                name: INBOX_PROJECT_NAME,
                                 color: "#F18181",
                                 closed: false,
                                 groupId: null,
@@ -695,7 +696,7 @@ export class TaskSyncService {
 
             const hasAnySuccessfulScope = inboxSucceeded || successfulProjects.size > 0;
             if (!hasAnySuccessfulScope) {
-                throw new Error("未能从滴答清单拉取任务");
+                throw new Error(this.plugin.t("error.remotePullFailed"));
             }
 
             if (tasks.length > 0) {
@@ -703,7 +704,7 @@ export class TaskSyncService {
                     const idx = this.plugin.settings.tasks.findIndex(t => t.didaId === remote.id);
                     if (idx === -1) {
                         if (this.hasPendingDelete(remote.id)) continue;
-                        const proj = projectMap.get(remote.projectId) || { id: remote.projectId, name: remote.projectName || "未知项目" };
+                        const proj = projectMap.get(remote.projectId) || { id: remote.projectId, name: remote.projectName || this.plugin.t("sync.unknownProject") };
                         const localCopyIndex = this.findLocalRepeatTaskCopyIndex(remote);
                         if (localCopyIndex === -1) {
                             await this.createTaskFromDida(remote, proj);
@@ -719,7 +720,7 @@ export class TaskSyncService {
                             const decision = resolvePendingTaskConflict(pendingOperation, remote);
                             if (decision === "local") continue;
                             if (decision === "unresolvable") {
-                                const reason = "本地和云端均有修改，但修改时间无法比较，已停止覆盖";
+                                const reason = this.plugin.t("sync.conflictTimestampsUncomparable");
                                 await this.outbox.block(pendingOperation, reason);
                                 result.failedScopes.push(`conflict:${remote.id}`);
                                 result.failedDetails = [...(result.failedDetails || []), {
@@ -882,7 +883,7 @@ export class TaskSyncService {
             const fullSnapshot = projectListSucceeded
                 && inboxSucceeded
                 && Array.from(expectedProjects).every(projectId => successfulProjects.has(projectId));
-            if (lockHeld) this.syncRunCoordinator.setPhase("reconciling", "正在核对完成与删除状态");
+            if (lockHeld) this.syncRunCoordinator.setPhase("reconciling", this.plugin.t("phase.reconciling"));
             if (fullSnapshot) this._refreshReverseCompletionSeenMeta(tasks);
             const deletedCount = 0;
             let extraCount = 0;
@@ -903,15 +904,15 @@ export class TaskSyncService {
             result.downloaded += updatedCount;
             if (result.failedScopes.length > 0) {
                 result.outcome = "partial";
-                this.plugin.updateStatusBar("部分同步失败");
+                this.plugin.updateStatusBar(this.plugin.t("status.partialFailure"));
             } else {
-                this.plugin.updateStatusBar("已连接");
+                this.plugin.updateStatusBar(this.plugin.t("status.connected"));
             }
             if (fullSnapshot) this._scheduleSyncConsistencyFollowUp();
         } catch (e: any) {
             result.outcome = "failed";
             result.failedScopes.push(e?.message || String(e));
-            this.plugin.updateStatusBar("同步失败");
+            this.plugin.updateStatusBar(this.plugin.t("notice.syncFailedShort"));
         } finally {
             if (!lockHeld) this.isSyncing = false;
         }
@@ -957,11 +958,12 @@ export class TaskSyncService {
             getMeta: didaId => this._getReverseCompletionMeta(didaId),
             fetchCompletedTasks: async query => {
                 const completedTasks = await this.plugin.apiClient.getCompletedTasks(query);
-                if (!Array.isArray(completedTasks)) throw new Error("已完成任务接口返回了无效数据");
+                if (!Array.isArray(completedTasks)) throw new Error(this.plugin.t("error.completedTasksInvalid"));
                 return completedTasks;
             },
             verifyTask: task => this._verifySingleDidaTaskStatus(task.projectId, task.didaId as string) as Promise<RemoteTaskVerification>,
-            verifyBudget: { value: REVERSE_COMPLETION_MAX_VERIFY_PER_SYNC }
+            verifyBudget: { value: REVERSE_COMPLETION_MAX_VERIFY_PER_SYNC },
+            translate: (key, params) => this.plugin.t(key, params)
         });
         if (count > 0) await this.plugin.saveSettings();
         return count;
@@ -995,8 +997,8 @@ export class TaskSyncService {
                                 const line = lines[lineNumber];
                                 const local = this.plugin.settings.tasks.find(task => task.didaId === nativeTask.didaId);
                                 const replaced = local?.remoteDeleted
-                                    ? formatTaskLine(line, { didaId: null, disconnected: true })
-                                    : formatTaskLine(line, { checkbox: "x" });
+                                    ? formatTaskLine(line, { didaId: null, disconnected: true }, this.plugin.t("common.untitledTask"))
+                                    : formatTaskLine(line, { checkbox: "x" }, this.plugin.t("common.untitledTask"));
                                 if (replaced !== line) {
                                     lines[lineNumber] = replaced;
                                     count++;
@@ -1099,7 +1101,7 @@ export class TaskSyncService {
                 return data;
             }
             const errorText = await res.text();
-            throw new Error(`创建任务失败: ${res.status} - ${errorText}`);
+            throw new Error(this.plugin.t("error.createTaskFailed", { status: res.status, detail: errorText }));
         } catch (e) {
             if (trackPending) await this.markOperationFailed(task, e);
             throw e;
@@ -1136,7 +1138,7 @@ export class TaskSyncService {
                 } as any);
                 if (!res.ok) {
                     await res.text();
-                    throw new Error("更新任务失败: " + res.status);
+                    throw new Error(this.plugin.t("error.updateTaskFailed", { status: res.status }));
                 }
                 const data = await this.readResponseJson(res, {});
                 const updatedSchedule = mergeRemoteTaskSchedule(task, data);
@@ -1158,12 +1160,12 @@ export class TaskSyncService {
     }
 
     private async completeTaskInDida(task: DidaTask) {
-        if (!task.didaId) throw new Error("完成任务失败: 缺少远端 ID");
+        if (!task.didaId) throw new Error(this.plugin.t("error.completeTaskFailedNoId"));
         const projectId = await this.resolveRemoteProjectId(task.projectId || "inbox");
         const res = await this.plugin.apiClient.makeAuthenticatedRequest(this.plugin.apiClient.buildApiUrl(`/project/${projectId}/task/${task.didaId}/complete`), {
             method: "POST"
         } as any);
-        if (!res.ok) throw new Error("完成任务失败: " + res.status);
+        if (!res.ok) throw new Error(this.plugin.t("error.completeTaskFailed", { status: res.status }));
         task.status = 2;
         ensureTaskCompletedTime(task);
     }
@@ -1210,7 +1212,7 @@ export class TaskSyncService {
             const res = await this.plugin.apiClient.makeAuthenticatedRequest(this.plugin.apiClient.buildApiUrl(`/project/${remoteProjectId}/task/${taskId}`), {
                 method: "DELETE"
             } as any);
-            if (!res.ok) throw new Error("删除任务失败: " + res.status);
+            if (!res.ok) throw new Error(this.plugin.t("error.deleteTaskFailed", { status: res.status }));
             await this.clearOperation(task);
         } catch (e) {
             if (trackPending) await this.markOperationFailed(task, e);
@@ -1297,7 +1299,7 @@ export class TaskSyncService {
             desc,
             didaId: task.id,
             projectId: this.normalizeRemoteProjectId(task.projectId),
-            projectName: project ? project.name : task.projectName || "收集箱",
+            projectName: project ? project.name : task.projectName || INBOX_PROJECT_NAME,
             createdAt: task.createdTime || new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             dueDate: task.dueDate || null,
@@ -1340,7 +1342,7 @@ export class TaskSyncService {
                     const res = await this.plugin.apiClient.makeAuthenticatedRequest(this.plugin.apiClient.buildApiUrl(`/project/${projectId}/task/${task.didaId}/complete`), {
                         method: "POST"
                     } as any);
-                    if (!res.ok) throw new Error("完成任务失败: " + res.status);
+                    if (!res.ok) throw new Error(this.plugin.t("error.completeTaskFailed", { status: res.status }));
                 }
                 await this.clearOperation(task);
             } catch (e) {

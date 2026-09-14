@@ -1,12 +1,15 @@
 import { Modal } from "obsidian";
+import DidaSyncPlugin from "../main";
 import { ProjectCatalogEntry } from "../types";
 
 export class ProjectDeleteConfirmModal extends Modal {
+    plugin: DidaSyncPlugin;
     project: ProjectCatalogEntry;
     onConfirm: () => void;
 
-    constructor(app: any, project: ProjectCatalogEntry, onConfirm: () => void) {
+    constructor(app: any, plugin: DidaSyncPlugin, project: ProjectCatalogEntry, onConfirm: () => void) {
         super(app);
+        this.plugin = plugin;
         this.project = project;
         this.onConfirm = onConfirm;
     }
@@ -14,14 +17,14 @@ export class ProjectDeleteConfirmModal extends Modal {
     onOpen() {
         const content = this.contentEl;
         content.empty();
-        content.createEl("h3", { text: `删除项目标题：${this.project.name}` });
+        content.createEl("h3", { text: this.plugin.t("modal.projectDelete.title", { name: this.plugin.getProjectDisplayName(this.project.name) }) });
         content.createEl("p", {
-            text: "该项目当前没有任务。确认后会删除本地项目标题，并同步删除滴答清单中的对应项目。"
+            text: this.plugin.t("modal.projectDelete.desc")
         });
 
         const footer = content.createDiv("dida-modal-actions-row");
-        footer.createEl("button", { text: "取消" }).addEventListener("click", () => this.close());
-        const confirm = footer.createEl("button", { text: "删除" });
+        footer.createEl("button", { text: this.plugin.t("common.cancel") }).addEventListener("click", () => this.close());
+        const confirm = footer.createEl("button", { text: this.plugin.t("common.delete") });
         confirm.addClass("mod-warning");
         confirm.addEventListener("click", () => {
             this.onConfirm();

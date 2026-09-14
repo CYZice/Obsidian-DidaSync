@@ -181,17 +181,17 @@ export function flattenDidaTaskTree(node: DidaTaskTreeNode): DidaTaskTreeNode[] 
     return out;
 }
 
-export function buildDidaTaskDragPayload(task: DidaTask, allTasks: DidaTask[], baseIndent: string = ""): string {
+export function buildDidaTaskDragPayload(task: DidaTask, allTasks: DidaTask[], baseIndent: string = "", untitledLabel: string = "无标题任务"): string {
     if (!task || !task.didaId) return "";
     const index = buildDidaTaskTreeIndex(allTasks || []);
     const node = buildDidaTaskTreeNode(task, index.childrenByParentId);
     const lines = flattenDidaTaskTree(node)
-        .map((item) => formatTaskLineFromTask(item.task, baseIndent + "\t".repeat(item.depth)))
+        .map((item) => formatTaskLineFromTask(item.task, baseIndent + "\t".repeat(item.depth), "", untitledLabel))
         .filter(Boolean);
     return lines.join("\n");
 }
 
-export function getDidaTaskPath(task: DidaTask, allTasks: DidaTask[]): string {
+export function getDidaTaskPath(task: DidaTask, allTasks: DidaTask[], untitledLabel: string = "无标题任务"): string {
     const byKey = new Map<string, DidaTask>();
     for (const candidate of allTasks || []) {
         for (const key of getDidaTaskTreeKeys(candidate)) byKey.set(key, candidate);
@@ -206,7 +206,7 @@ export function getDidaTaskPath(task: DidaTask, allTasks: DidaTask[]): string {
             if (seen.has(key)) break;
             seen.add(key);
         }
-        path.unshift(current.title || "无标题任务");
+        path.unshift(current.title || untitledLabel);
         current = current.parentId ? byKey.get(current.parentId) : undefined;
     }
     return path.join(" / ");

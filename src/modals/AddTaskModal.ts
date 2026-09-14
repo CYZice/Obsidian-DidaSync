@@ -1,4 +1,6 @@
 import { App, Notice } from "obsidian";
+import DidaSyncPlugin from "../main";
+import { MessageKey, MessageParams } from "../i18n";
 import { TaskScheduleInput } from "../types";
 import { ScopedPopup, TaskSchedulePicker } from "./TaskSchedulePicker";
 
@@ -8,6 +10,7 @@ export interface TaskCreateProject {
 }
 
 interface AddTaskModalOptions {
+    plugin: DidaSyncPlugin;
     projects: TaskCreateProject[];
     defaultProjectId?: string;
     defaultDate?: Date;
@@ -33,42 +36,44 @@ export class AddTaskModal {
     }
 
     open(): void {
+        const t = (key: MessageKey, params?: MessageParams) => this.options.plugin.t(key, params);
         this.popup.open(container => {
             const fields = container.createDiv("dida-task-create-fields");
-            fields.createEl("h3", { text: "添加任务" });
+            fields.createEl("h3", { text: t("modal.addTask.title") });
             const primaryRow = fields.createDiv("dida-task-create-primary-row");
             const titleInput = primaryRow.createEl("input", {
                 type: "text",
-                placeholder: "输入任务标题…",
+                placeholder: t("modal.addTask.titlePlaceholder"),
                 cls: "dida-task-create-title"
             });
             const projectSelect = primaryRow.createEl("select", {
                 cls: "dida-task-create-project-select",
-                attr: { "aria-label": "项目", title: "选择项目" }
+                attr: { "aria-label": t("modal.addTask.project"), title: t("modal.addTask.chooseProject") }
             });
             this.options.projects.forEach(project => {
-                projectSelect.createEl("option", { text: project.name, value: project.id });
+                projectSelect.createEl("option", { text: this.options.plugin.getProjectDisplayName(project.name), value: project.id });
             });
             projectSelect.value = this.options.defaultProjectId || this.options.projects[0]?.id || "inbox";
 
             const picker = new TaskSchedulePicker(this.app, {
+                plugin: this.options.plugin,
                 defaultDate: this.options.defaultDate || new Date(),
                 isAllDay: true
             });
             picker.render(container);
             picker.renderActions(container, {
-                primaryLabel: "添加",
+                primaryLabel: t("modal.addTask.primary"),
                 onCancel: () => this.close(),
                 onSubmit: async value => {
                     const title = titleInput.value.trim();
                     if (!title) {
-                        new Notice("请输入任务标题");
+                        new Notice(t("modal.addTask.titleEmpty"));
                         titleInput.focus();
                         return false;
                     }
                     const project = this.options.projects.find(item => item.id === projectSelect.value) || this.options.projects[0];
                     if (!project) {
-                        new Notice("没有可用项目");
+                        new Notice(t("modal.addTask.noProjects"));
                         return false;
                     }
                     await this.onSubmit(title, project, {

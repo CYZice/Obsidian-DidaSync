@@ -19,17 +19,17 @@ export class ProjectVisibilityModal extends Modal {
     render() {
         const content = this.contentEl;
         content.empty();
-        content.createEl("h3", { text: "管理清单显示" });
+        content.createEl("h3", { text: this.plugin.t("modal.visibility.title") });
 
         const projects = this.getProjects();
         if (projects.length === 0) {
-            content.createDiv("dida-settings-info", { text: "暂无可配置清单，请先同步任务。" });
+            content.createDiv("dida-settings-info", { text: this.plugin.t("modal.visibility.empty") });
         } else {
             projects.forEach((project) => this.renderProjectRow(content, project));
         }
 
         const footer = content.createDiv("dida-modal-actions-row");
-        const closeButton = footer.createEl("button", { text: "完成" });
+        const closeButton = footer.createEl("button", { text: this.plugin.t("modal.visibility.done") });
         closeButton.addClass("mod-cta");
         closeButton.addEventListener("click", () => this.close());
     }
@@ -41,21 +41,21 @@ export class ProjectVisibilityModal extends Modal {
 
     renderProjectRow(containerEl: HTMLElement, project: ProjectCatalogEntry) {
         const taskCount = this.plugin.getProjectTaskCount(project);
-        const descParts = [`${taskCount} 个任务`];
-        if (project.isArchived) descParts.push("已归档");
+        const descParts = [this.plugin.t("modal.visibility.taskCount", { count: taskCount })];
+        if (project.isArchived) descParts.push(this.plugin.t("modal.visibility.archived"));
 
         const isInbox = this.plugin.isInboxProject(project.id, project.name);
-        if (isInbox) descParts.push("固定显示");
+        if (isInbox) descParts.push(this.plugin.t("modal.visibility.alwaysShown"));
 
         new Setting(containerEl)
-            .setName(project.name)
-            .setDesc(descParts.join("，"))
+            .setName(this.plugin.getProjectDisplayName(project.name))
+            .setDesc(descParts.join(this.plugin.t("modal.visibility.join")))
             .addToggle((toggle) => {
                 toggle
                     .setValue(isInbox || this.plugin.isProjectVisible(project.id, project.name))
                     .onChange(async (value) => {
                         if (isInbox) {
-                            new Notice("收集箱固定显示，不能隐藏");
+                            new Notice(this.plugin.t("modal.visibility.inboxLocked"));
                             this.render();
                             return;
                         }

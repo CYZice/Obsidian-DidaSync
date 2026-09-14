@@ -1,7 +1,8 @@
-import { App, Setting } from "obsidian";
+import { App, Notice, Setting } from "obsidian";
 import DidaSyncPlugin from "../../main";
 import { DEFAULT_SETTINGS } from "../../types";
 import { normalizePomodoroPresetMinutes } from "../../utils";
+import { MessageKey, MessageParams } from "../../i18n";
 import { AbstractSettingsView } from "./abstract-settings-view";
 
 export class UISettingsView extends AbstractSettingsView {
@@ -10,62 +11,76 @@ export class UISettingsView extends AbstractSettingsView {
     }
 
     render(containerEl: HTMLElement): void {
-        containerEl.createEl("h3", { text: "侧边栏入口与默认视图" });
-        new Setting(containerEl).setName("默认视图模式").setDesc("右侧边栏打开任务清单时默认显示的视图类型").addDropdown(t => t.addOption("task", "任务列表").addOption("timeblock", "时间段视图").setValue(this.plugin.settings.defaultViewMode || "task").onChange(async t => {
-            this.plugin.settings.defaultViewMode = t as any;
+        const t = (key: MessageKey, params?: MessageParams) => this.t(key, params);
+        new Setting(containerEl)
+            .setName(t("settings.language.name"))
+            .setDesc(t("settings.language.desc"))
+            .addDropdown(dropdown => dropdown
+                .addOption("auto", t("settings.language.auto"))
+                .addOption("en", t("settings.language.en"))
+                .addOption("zh", t("settings.language.zh"))
+                .setValue(this.plugin.settings.uiLanguage || "auto")
+                .onChange(async value => {
+                    this.plugin.settings.uiLanguage = value as any;
+                    await this.plugin.saveSettings();
+                    new Notice(t("settings.language.reloadNotice"));
+                }));
+        containerEl.createEl("h3", { text: t("settings.views.sidebarHeading") });
+        new Setting(containerEl).setName(t("settings.views.defaultViewMode.name")).setDesc(t("settings.views.defaultViewMode.desc")).addDropdown(d => d.addOption("task", t("settings.views.viewMode.task")).addOption("timeblock", t("settings.views.viewMode.timeblock")).setValue(this.plugin.settings.defaultViewMode || "task").onChange(async value => {
+            this.plugin.settings.defaultViewMode = value as any;
             await this.plugin.saveSettings();
         }));
-        new Setting(containerEl).setName("显示时间线入口").setDesc("桌面端在任务视图顶部显示时间线弹窗入口；移动端始终隐藏。").addToggle(t => t.setValue(this.plugin.settings.showTimelineEntry !== false).onChange(async value => {
+        new Setting(containerEl).setName(t("settings.views.showTimeline.name")).setDesc(t("settings.views.showTimeline.desc")).addToggle(toggle => toggle.setValue(this.plugin.settings.showTimelineEntry !== false).onChange(async value => {
             this.plugin.settings.showTimelineEntry = value;
             await this.plugin.saveSettings();
             this.plugin.updateOptionalEntryVisibility();
             this.plugin.refreshTaskView();
         }));
-        new Setting(containerEl).setName("显示番茄钟入口").setDesc("桌面端在任务视图顶部显示番茄钟入口；移动端始终隐藏。").addToggle(t => t.setValue(this.plugin.settings.showPomodoroEntry !== false).onChange(async value => {
+        new Setting(containerEl).setName(t("settings.views.showPomodoro.name")).setDesc(t("settings.views.showPomodoro.desc")).addToggle(toggle => toggle.setValue(this.plugin.settings.showPomodoroEntry !== false).onChange(async value => {
             this.plugin.settings.showPomodoroEntry = value;
             await this.plugin.saveSettings();
             this.plugin.refreshTaskView();
         }));
 
-        containerEl.createEl("h3", { text: "日历与时间段视图" });
+        containerEl.createEl("h3", { text: t("settings.views.calendarHeading") });
         const defaultCalendarMode = this.plugin.settings.defaultCalendarMode === "month" || this.plugin.settings.defaultCalendarMode === "year" ? this.plugin.settings.defaultCalendarMode : "day";
-        new Setting(containerEl).setName("默认日历粒度").setDesc("时间段视图打开时默认使用的日历粒度").addDropdown(t => t.addOption("day", "日").addOption("month", "月").addOption("year", "年").setValue(defaultCalendarMode).onChange(async t => {
-            this.plugin.settings.defaultCalendarMode = t as any;
+        new Setting(containerEl).setName(t("settings.views.calendarGranularity.name")).setDesc(t("settings.views.calendarGranularity.desc")).addDropdown(d => d.addOption("day", t("settings.views.calendarMode.day")).addOption("month", t("settings.views.calendarMode.month")).addOption("year", t("settings.views.calendarMode.year")).setValue(defaultCalendarMode).onChange(async value => {
+            this.plugin.settings.defaultCalendarMode = value as any;
             await this.plugin.saveSettings();
             this.plugin.refreshTaskView();
         }));
-        new Setting(containerEl).setName("默认显示已完成").setDesc("在日历视图中默认显示已完成任务，月视图按整月、年视图按全年刷新远端完成记录").addToggle(t => t.setValue(this.plugin.settings.defaultShowCompletedInCalendar === true).onChange(async value => {
+        new Setting(containerEl).setName(t("settings.views.showCompleted.name")).setDesc(t("settings.views.showCompleted.desc")).addToggle(toggle => toggle.setValue(this.plugin.settings.defaultShowCompletedInCalendar === true).onChange(async value => {
             this.plugin.settings.defaultShowCompletedInCalendar = value;
             await this.plugin.saveSettings();
             this.plugin.refreshTaskView();
         }));
-        new Setting(containerEl).setName("时间块每小时高度").setDesc("时间段视图中每小时的高度（像素），调整后需要切换视图才能生效").addSlider(t => t.setLimits(50, 100, 5).setValue(this.plugin.settings.timeBlockHourHeight || 80).setDynamicTooltip().onChange(async t => {
-            this.plugin.settings.timeBlockHourHeight = t;
+        new Setting(containerEl).setName(t("settings.views.hourHeight.name")).setDesc(t("settings.views.hourHeight.desc")).addSlider(slider => slider.setLimits(50, 100, 5).setValue(this.plugin.settings.timeBlockHourHeight || 80).setDynamicTooltip().onChange(async value => {
+            this.plugin.settings.timeBlockHourHeight = value;
             await this.plugin.saveSettings();
-            document.documentElement.style.setProperty("--dida-hour-height", t + "px");
+            document.documentElement.style.setProperty("--dida-hour-height", value + "px");
         }));
 
-        new Setting(containerEl).setName("时间段视图起始时间").setDesc("自定义设置时间段视图的起始时间（保持24小时刻度）").addDropdown(e => {
-            for (let t = 0; t < 24; t++) {
-                var i = t.toString().padStart(2, "0") + ":00";
-                e.addOption(t.toString(), i);
+        new Setting(containerEl).setName(t("settings.views.startHour.name")).setDesc(t("settings.views.startHour.desc")).addDropdown(dropdown => {
+            for (let hour = 0; hour < 24; hour++) {
+                const label = hour.toString().padStart(2, "0") + ":00";
+                dropdown.addOption(hour.toString(), label);
             }
-            e.setValue((this.plugin.settings.timeBlockStartHour || 0).toString()).onChange(async t => {
-                this.plugin.settings.timeBlockStartHour = parseInt(t);
+            dropdown.setValue((this.plugin.settings.timeBlockStartHour || 0).toString()).onChange(async value => {
+                this.plugin.settings.timeBlockStartHour = parseInt(value);
                 await this.plugin.saveSettings();
                 this.plugin.refreshTaskView();
             });
         });
 
         const pomodoroHeading = containerEl.createDiv({ cls: "setting-item-heading" });
-        pomodoroHeading.createDiv({ text: "番茄钟休息设置" });
+        pomodoroHeading.createDiv({ text: t("settings.views.pomodoroHeading") });
         pomodoroHeading.createDiv({
             cls: "setting-item-description",
-            text: "设置短休息和长休息的默认时长。修改后会应用到后续休息阶段；若当前停留在未开始的休息阶段，也会同步更新显示。"
+            text: t("settings.views.pomodoroHeadingDesc")
         });
 
-        new Setting(containerEl).setName("短休息时长").setDesc("每个专注番茄结束后的短休息时长（分钟）").addSlider(t =>
-            t.setLimits(1, 15, 1)
+        new Setting(containerEl).setName(t("settings.views.shortBreak.name")).setDesc(t("settings.views.shortBreak.desc")).addSlider(slider =>
+            slider.setLimits(1, 15, 1)
                 .setValue(this.plugin.settings.pomodoroSettings?.shortBreakMinutes || 5)
                 .setDynamicTooltip()
                 .onChange(async value => {
@@ -83,8 +98,8 @@ export class UISettingsView extends AbstractSettingsView {
                 })
         );
 
-        new Setting(containerEl).setName("长休息时长").setDesc("每 4 个专注番茄结束后的长休息时长（分钟）").addSlider(t =>
-            t.setLimits(15, 30, 1)
+        new Setting(containerEl).setName(t("settings.views.longBreak.name")).setDesc(t("settings.views.longBreak.desc")).addSlider(slider =>
+            slider.setLimits(15, 30, 1)
                 .setValue(this.plugin.settings.pomodoroSettings?.longBreakMinutes || 15)
                 .setDynamicTooltip()
                 .onChange(async value => {

@@ -1,4 +1,5 @@
 import { fetchCompletedTasksByRange } from "../completedTaskCache";
+import { translateDefault, Translator } from "../i18n";
 import { ensureTaskCompletedTime, normalizeRemoteCompletedTime } from "../taskCompletion";
 import { DidaTask } from "../types";
 
@@ -27,6 +28,7 @@ interface ReconcileMissingRemoteTasksOptions extends MissingTaskVerificationOpti
     hasPendingOperation(task: DidaTask): boolean;
     isNoteTask(task: DidaTask): boolean;
     fetchCompletedTasks(query: { projectIds?: string[]; startDate: string; endDate: string }): Promise<any[]>;
+    translate?: Translator;
 }
 
 export async function verifyMissingRemoteTask(task: DidaTask, options: MissingTaskVerificationOptions): Promise<boolean> {
@@ -88,7 +90,7 @@ export async function reconcileMissingRemoteTasks(options: ReconcileMissingRemot
         options.fetchCompletedTasks
     );
     if (completedResult.truncatedSegments.length > 0) {
-        throw new Error("已完成任务记录不完整，跳过缺失任务清理");
+        throw new Error(options.translate ? options.translate("error.completedRecordsIncomplete") : translateDefault("error.completedRecordsIncomplete"));
     }
 
     const completedById = new Map<string, any>();

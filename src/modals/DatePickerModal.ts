@@ -1,5 +1,6 @@
 import { App } from "obsidian";
 import DidaSyncPlugin from "../main";
+import { translateDefault } from "../i18n";
 import { ScopedPopup, TaskSchedulePicker } from "./TaskSchedulePicker";
 import { DatePickerModalInitialSchedule, hasExplicitSchedule, resolveDatePickerInitialSchedule } from "./datePickerSchedule";
 
@@ -49,6 +50,7 @@ export class DatePickerModal {
         const pickerSchedule = fallbackCurrentSchedule || schedule;
         this.popup.open(container => {
             const picker = new TaskSchedulePicker(this.app, {
+                plugin: this.plugin,
                 startDate: pickerSchedule?.startDate || null,
                 dueDate: pickerSchedule?.dueDate || null,
                 isAllDay: this.dateOnly ? true : (hasExplicitSchedule(pickerSchedule) && typeof pickerSchedule?.isAllDay === "boolean" ? pickerSchedule.isAllDay : true),
@@ -58,7 +60,7 @@ export class DatePickerModal {
             });
             picker.render(container);
             picker.renderActions(container, {
-                primaryLabel: "确认",
+                primaryLabel: this.plugin ? this.plugin.t("common.confirm") : translateDefault("common.confirm"),
                 onCancel: () => this.close(),
                 onSubmit: async value => {
                     await this.onDateSelect(value.startDate, value.isAllDay, value.dueDate || undefined, value.repeatFlag);

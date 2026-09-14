@@ -34,9 +34,9 @@ export class TaskNoteProjectPickerModal extends Modal {
         this.selectedProjectKeys = [...selectedProjectKeys];
         this.onSelectionChange = onSelectionChange;
         this.options = {
-            title: options.title || "选择同步清单",
-            selectionLabel: options.selectionLabel || "自定义清单",
-            emptyText: options.emptyText || "暂无可选清单，请先同步任务。",
+            title: options.title || this.plugin.t("modal.projectPicker.title"),
+            selectionLabel: options.selectionLabel || this.plugin.t("modal.projectPicker.selectionLabel"),
+            emptyText: options.emptyText || this.plugin.t("modal.projectPicker.empty"),
             requireSelection: options.requireSelection !== false,
             getProjectKey: options.getProjectKey || ((project) => this.plugin.getProjectFilterKey(project.id, project.name)),
             getProjects: options.getProjects,
@@ -59,15 +59,15 @@ export class TaskNoteProjectPickerModal extends Modal {
         } else {
             const controls = new Setting(content)
                 .setName(this.options.selectionLabel)
-                .setDesc(`已选择 ${this.selectedProjectKeys.length} 个清单`);
+                .setDesc(this.plugin.t("modal.projectPicker.selectedCount", { count: this.selectedProjectKeys.length }));
             controls.addButton((button) => button
-                .setButtonText("全选")
+                .setButtonText(this.plugin.t("modal.projectPicker.selectAll"))
                 .onClick(() => {
                     this.selectedProjectKeys = projects.map((project) => this.options.getProjectKey(project)).filter(Boolean);
                     this.render();
                 }));
             controls.addButton((button) => button
-                .setButtonText("清空")
+                .setButtonText(this.plugin.t("modal.projectPicker.clear"))
                 .onClick(() => {
                     this.selectedProjectKeys = [];
                     this.render();
@@ -77,12 +77,12 @@ export class TaskNoteProjectPickerModal extends Modal {
         }
 
         const footer = content.createDiv("dida-modal-actions-row");
-        footer.createEl("button", { text: "取消" }).addEventListener("click", () => this.close());
-        const confirm = footer.createEl("button", { text: "完成" });
+        footer.createEl("button", { text: this.plugin.t("common.cancel") }).addEventListener("click", () => this.close());
+        const confirm = footer.createEl("button", { text: this.plugin.t("modal.projectPicker.done") });
         confirm.addClass("mod-cta");
         confirm.addEventListener("click", async () => {
             if (this.options.requireSelection && this.selectedProjectKeys.length === 0) {
-                new Notice("请至少选择一个清单");
+                new Notice(this.plugin.t("modal.projectPicker.requireOne"));
                 return;
             }
             await this.saveSelection();
@@ -100,13 +100,13 @@ export class TaskNoteProjectPickerModal extends Modal {
         const key = this.options.getProjectKey(project);
         if (!key) return;
         const taskCount = this.plugin.getProjectTaskCount(project);
-        const descParts = [`${taskCount} 个任务`];
-        if (!this.plugin.isProjectVisible(project.id, project.name)) descParts.push("侧边栏隐藏");
-        if (project.isArchived) descParts.push("已归档");
+        const descParts = [this.plugin.t("modal.visibility.taskCount", { count: taskCount })];
+        if (!this.plugin.isProjectVisible(project.id, project.name)) descParts.push(this.plugin.t("modal.visibility.hiddenInSidebar"));
+        if (project.isArchived) descParts.push(this.plugin.t("modal.visibility.archived"));
 
         new Setting(containerEl)
-            .setName(project.name)
-            .setDesc(descParts.join("，"))
+            .setName(this.plugin.getProjectDisplayName(project.name))
+            .setDesc(descParts.join(this.plugin.t("modal.visibility.join")))
             .addToggle((toggle) => toggle
                 .setValue(this.selectedProjectKeys.includes(key))
                 .onChange((value) => {

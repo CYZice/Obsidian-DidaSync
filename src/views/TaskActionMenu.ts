@@ -452,11 +452,11 @@ export class TaskActionMenu {
         this.selectedIndex = 0;
         this.menuItems = [];
 
-        this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "选择操作";
+        this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = this.plugin.t("actionMenu.title");
 
         const optionsDiv = this.menuElement.createEl("div", { cls: "task-action-menu-options" });
 
-        const syncOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: "🔗 同步到滴答" });
+        const syncOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: this.plugin.t("actionMenu.syncToDida") });
         syncOption.addEventListener("click", (e) => {
             e.preventDefault(); e.stopPropagation();
             this.close();
@@ -464,28 +464,28 @@ export class TaskActionMenu {
         });
         this.menuItems.push(syncOption);
 
-        const searchOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: "🔍 关联/搜索任务" });
+        const searchOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: this.plugin.t("actionMenu.linkSearch") });
         searchOption.addEventListener("click", (e) => {
             e.preventDefault(); e.stopPropagation();
             this.renderSearchMenu();
         });
         this.menuItems.push(searchOption);
 
-        const dateOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: "📅 到期日期" });
+        const dateOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: this.plugin.t("actionMenu.dueDate") });
         dateOption.addEventListener("click", (e) => {
             e.preventDefault(); e.stopPropagation();
             this.renderScheduleMenu();
         });
         this.menuItems.push(dateOption);
 
-        const priorityOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: "🔴 优先级" });
+        const priorityOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: this.plugin.t("actionMenu.priority") });
         priorityOption.addEventListener("click", (e) => {
             e.preventDefault(); e.stopPropagation();
             this.renderPriorityMenu();
         });
         this.menuItems.push(priorityOption);
 
-        const repeatOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: "🔁 重复" });
+        const repeatOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: this.plugin.t("actionMenu.repeat") });
         repeatOption.addEventListener("click", (e) => {
             e.preventDefault(); e.stopPropagation();
             this.renderRepeatMenu();
@@ -508,11 +508,12 @@ export class TaskActionMenu {
         this.selectedIndex = 0;
         this.menuItems = [];
 
-        this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "到期/时间段";
+        this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = this.plugin.t("actionMenu.dueDateSection");
         this.renderBackButton();
 
         const body = this.menuElement.createDiv("dida-task-action-schedule-body");
         const picker = new TaskSchedulePicker(this.app, {
+            plugin: this.plugin,
             startDate: parsed?.startDate || null,
             dueDate: parsed?.dueDate || null,
             isAllDay: typeof parsed?.isAllDay === "boolean" ? parsed.isAllDay : true,
@@ -521,7 +522,7 @@ export class TaskActionMenu {
         });
         picker.render(body);
         picker.renderActions(body, {
-            primaryLabel: "确认",
+            primaryLabel: this.plugin.t("common.confirm"),
             onCancel: () => {
                 this.renderMainMenu();
                 return false;
@@ -549,13 +550,13 @@ export class TaskActionMenu {
         this.resetMenuVariantClasses();
         this.selectedIndex = 0;
         this.menuItems = [];
-        this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "选择优先级";
+        this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = this.plugin.t("actionMenu.choosePriority");
         this.renderBackButton();
         [
-            { label: "⚪ 无优先级", priority: 0 },
-            { label: "🔵 低优先级", priority: 1 },
-            { label: "🟡 中优先级", priority: 3 },
-            { label: "🔴 高优先级", priority: 5 }
+            { label: this.plugin.t("actionMenu.priorityNone"), priority: 0 },
+            { label: this.plugin.t("actionMenu.priorityLow"), priority: 1 },
+            { label: this.plugin.t("actionMenu.priorityMedium"), priority: 3 },
+            { label: this.plugin.t("actionMenu.priorityHigh"), priority: 5 }
         ].forEach(item => {
             const el = this.menuElement!.createEl("div", { cls: "task-action-menu-option", text: item.label });
             el.addEventListener("click", (e) => {
@@ -575,14 +576,14 @@ export class TaskActionMenu {
         this.resetMenuVariantClasses();
         this.selectedIndex = 0;
         this.menuItems = [];
-        this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "选择重复";
+        this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = this.plugin.t("actionMenu.chooseRepeat");
         this.renderBackButton();
         [
-            { label: "不重复", text: "" },
-            { label: "每天", text: "every day" },
-            { label: "每周", text: "every week" },
-            { label: "每月", text: "every month" },
-            { label: "每年", text: "every year" }
+            { label: this.plugin.t("repeat.none"), text: "" },
+            { label: this.plugin.t("repeat.daily"), text: "every day" },
+            { label: this.plugin.t("repeat.weekly"), text: "every week" },
+            { label: this.plugin.t("repeat.monthly"), text: "every month" },
+            { label: this.plugin.t("repeat.yearly"), text: "every year" }
         ].forEach(item => {
             const el = this.menuElement!.createEl("div", { cls: "task-action-menu-option", text: item.label });
             el.addEventListener("click", (e) => {
@@ -598,7 +599,7 @@ export class TaskActionMenu {
 
     renderBackButton() {
         if (!this.menuElement) return;
-        const backBtn = this.menuElement.createEl("div", { cls: "task-action-menu-back", text: "← 返回" });
+        const backBtn = this.menuElement.createEl("div", { cls: "task-action-menu-back", text: this.plugin.t("actionMenu.back") });
         backBtn.addEventListener("click", (e) => {
             e.preventDefault(); e.stopPropagation();
             this.renderMainMenu();
@@ -615,9 +616,9 @@ export class TaskActionMenu {
         this.selectedIndex = 0;
         this.menuItems = [];
 
-        this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "关联/搜索任务";
+        this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = this.plugin.t("actionMenu.linkSearch");
 
-        const backBtn = this.menuElement.createEl("div", { cls: "task-action-menu-back", text: "← 返回" });
+        const backBtn = this.menuElement.createEl("div", { cls: "task-action-menu-back", text: this.plugin.t("actionMenu.back") });
         backBtn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -630,7 +631,7 @@ export class TaskActionMenu {
         const searchInput = searchContainer.createEl("input", {
             type: "text",
             cls: "dida-search-input",
-            attr: { placeholder: "搜索任务..." }
+            attr: { placeholder: this.plugin.t("taskView.searchTasks") }
         });
         searchInput.focus();
 
@@ -663,7 +664,7 @@ export class TaskActionMenu {
                 : tasks;
 
             if (filtered.length === 0) {
-                const noResult = resultsContainer.createEl("div", { cls: "dida-no-tasks", text: query ? "没有找到匹配的任务，按Enter创建新任务" : "没有找到任务" });
+                const noResult = resultsContainer.createEl("div", { cls: "dida-no-tasks", text: query ? this.plugin.t("suggestion.noMatch") : this.plugin.t("suggestion.noTasks") });
                 this.menuItems.push(noResult);
             } else {
                 filtered.forEach((task, idx) => {
@@ -672,14 +673,14 @@ export class TaskActionMenu {
 
                     const titleDiv = document.createElement("div");
                     titleDiv.className = "dida-suggestion-title";
-                    titleDiv.textContent = task.title || "无标题任务";
+                    titleDiv.textContent = task.title || this.plugin.t("common.untitledTask");
                     if (task.completed) titleDiv.classList.add("completed");
                     item.appendChild(titleDiv);
 
                     if (task.projectName) {
                         const projectDiv = document.createElement("div");
                         projectDiv.className = "dida-suggestion-project";
-                        projectDiv.textContent = "项目: " + task.projectName;
+                        projectDiv.textContent = this.plugin.t("suggestion.projectLabel", { name: this.plugin.getProjectDisplayName(task.projectName) });
                         item.appendChild(projectDiv);
                     }
 

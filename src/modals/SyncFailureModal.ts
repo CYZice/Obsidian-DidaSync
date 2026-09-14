@@ -11,16 +11,20 @@ export class SyncFailureModal extends Modal {
         const { contentEl } = this;
         contentEl.empty();
         contentEl.addClass("dida-sync-failure-modal");
-        contentEl.createEl("h2", { text: "同步失败明细" });
+        contentEl.createEl("h2", { text: this.plugin.t("modal.syncFailure.title") });
 
         const details = this.result.failedDetails || [];
         const scopeFailures = this.result.failedScopes || [];
         const operationFailures = this.result.failedOperations || [];
         const summary = contentEl.createDiv("dida-sync-failure-summary");
-        summary.setText(`已上传 ${this.result.uploaded} 项，已下载 ${this.result.downloaded} 项，失败 ${Math.max(details.length, operationFailures.length) + scopeFailures.length} 项。`);
+        summary.setText(this.plugin.t("modal.syncFailure.summary", {
+            uploaded: this.result.uploaded,
+            downloaded: this.result.downloaded,
+            failed: Math.max(details.length, operationFailures.length) + scopeFailures.length
+        }));
 
         if (details.length === 0 && scopeFailures.length === 0 && operationFailures.length === 0) {
-            contentEl.createDiv({ text: "未能获取更具体的失败信息，请查看开发者控制台日志。", cls: "dida-sync-failure-empty" });
+            contentEl.createDiv({ text: this.plugin.t("modal.syncFailure.empty"), cls: "dida-sync-failure-empty" });
             return;
         }
 
@@ -28,38 +32,38 @@ export class SyncFailureModal extends Modal {
         for (const detail of details) this.renderDetail(list, detail);
         for (const scope of scopeFailures) {
             const item = list.createEl("li");
-            item.createEl("div", { text: `同步范围：${scope}`, cls: "dida-sync-failure-title" });
-            item.createEl("div", { text: "该清单或任务范围未能拉取完整数据。", cls: "dida-sync-failure-reason" });
+            item.createEl("div", { text: this.plugin.t("modal.syncFailure.scope", { scope }), cls: "dida-sync-failure-title" });
+            item.createEl("div", { text: this.plugin.t("modal.syncFailure.scopeReason"), cls: "dida-sync-failure-reason" });
         }
         if (details.length === 0) {
             for (const reason of operationFailures) {
                 const item = list.createEl("li");
-                item.createEl("div", { text: "同步操作失败", cls: "dida-sync-failure-title" });
-                item.createEl("div", { text: `原因：${reason}`, cls: "dida-sync-failure-reason" });
+                item.createEl("div", { text: this.plugin.t("modal.syncFailure.operationFailed"), cls: "dida-sync-failure-title" });
+                item.createEl("div", { text: this.plugin.t("modal.syncFailure.reason", { reason }), cls: "dida-sync-failure-reason" });
             }
         }
 
-        const close = contentEl.createEl("button", { text: "关闭" });
+        const close = contentEl.createEl("button", { text: this.plugin.t("modal.syncFailure.close") });
         close.addEventListener("click", () => this.close());
     }
 
     private renderDetail(list: HTMLOListElement, detail: SyncFailureDetail) {
         const item = list.createEl("li");
-        const title = detail.title?.trim() || detail.localTaskId || detail.didaId || "未命名任务";
+        const title = detail.title?.trim() || detail.localTaskId || detail.didaId || this.plugin.t("common.untitledTask");
         const operation = this.getOperationLabel(detail.operation);
         item.createEl("div", { text: `${title} · ${operation}`, cls: "dida-sync-failure-title" });
-        if (detail.projectName) item.createEl("div", { text: `清单：${detail.projectName}`, cls: "dida-sync-failure-meta" });
-        item.createEl("div", { text: `原因：${detail.reason}`, cls: "dida-sync-failure-reason" });
-        if (detail.attempts) item.createEl("div", { text: `已重试 ${detail.attempts} 次`, cls: "dida-sync-failure-meta" });
+        if (detail.projectName) item.createEl("div", { text: this.plugin.t("modal.syncFailure.projectLabel", { name: this.plugin.getProjectDisplayName(detail.projectName) }), cls: "dida-sync-failure-meta" });
+        item.createEl("div", { text: this.plugin.t("modal.syncFailure.reason", { reason: detail.reason }), cls: "dida-sync-failure-reason" });
+        if (detail.attempts) item.createEl("div", { text: this.plugin.t("modal.syncFailure.retried", { count: detail.attempts }), cls: "dida-sync-failure-meta" });
     }
 
     private getOperationLabel(operation?: string) {
         switch (operation) {
-            case "upsert": return "上传/更新";
-            case "complete": return "同步完成状态";
-            case "delete": return "删除";
-            case "placement": return "移动清单/父任务";
-            default: return operation || "同步";
+            case "upsert": return this.plugin.t("sync.operation.upsert");
+            case "complete": return this.plugin.t("sync.operation.complete");
+            case "delete": return this.plugin.t("sync.operation.delete");
+            case "placement": return this.plugin.t("sync.operation.placement");
+            default: return operation || this.plugin.t("sync.operation.default");
         }
     }
 }
