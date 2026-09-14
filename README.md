@@ -66,6 +66,8 @@ A task sync plugin for Obsidian that brings your Dida365 or TickTick tasks into 
 
 ## Quick Start
 
+For the full English walkthrough, see the [User Guide](./docs/USER_GUIDE_EN.md).
+
 1. [Install and enable the plugin](#installation).
 2. Open plugin settings and click **Authorize** to connect your Dida365 or TickTick account through official OAuth 2.0.
 3. Open the sidebar or use the ribbon icon to start syncing tasks.
