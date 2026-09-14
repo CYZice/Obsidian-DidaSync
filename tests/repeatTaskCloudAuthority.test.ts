@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
 import Module from "node:module";
+import { MessageKey, MessageParams, ResolvedLanguage, translate } from "../src/i18n";
+
+function withTestTranslator<T extends object>(plugin: T, language: ResolvedLanguage = "en"): T & { t: (key: MessageKey, params?: MessageParams) => string } {
+    return Object.assign(plugin, {
+        t: (key: MessageKey, params?: MessageParams) => translate(language, key, params)
+    });
+}
 
 const originalLoad = (Module as any)._load;
 (Module as any)._load = function (request: string, parent: unknown, isMain: boolean) {
@@ -85,7 +92,7 @@ async function run() {
         }
     };
 
-    const manager = new SyncManager(plugin as any);
+    const manager = new SyncManager(withTestTranslator(plugin, "zh") as any);
     const matchIndex = manager.findLocalRepeatTaskCopyIndex(remoteRepeatTask);
     assert.equal(matchIndex, 0, "remote repeat instance should match the old local optimistic copy");
 
@@ -110,6 +117,9 @@ async function run() {
         },
         apiClient: {
             buildApiUrl,
+            async getCompletedTasks() {
+                return [];
+            },
             async makeAuthenticatedRequest() {
                 return { ok: true, status: 200, async json() { return []; } };
             }
@@ -125,7 +135,7 @@ async function run() {
         async saveSettings() { },
         isReverseUpdating: false
     };
-    const syncManager = new SyncManager(syncPlugin as any);
+    const syncManager = new SyncManager(withTestTranslator(syncPlugin, "zh") as any);
 
     await syncManager.syncFromDidaList();
     assert.deepEqual(statuses, ["同步中...", "已连接"], "a no-op sync should restore the connected status");
@@ -174,7 +184,7 @@ async function run() {
         async saveSettings() { },
         isReverseUpdating: false
     };
-    const partialManager = new SyncManager(partialPlugin as any);
+    const partialManager = new SyncManager(withTestTranslator(partialPlugin, "zh") as any);
     const partialResult = await partialManager.syncFromDidaList();
     assert.equal(partialResult.outcome, "partial", "one failed project should make the sync partial");
     assert.equal(partialResult.cleanupPerformed, false, "partial snapshots must not run missing-task cleanup");
@@ -210,7 +220,7 @@ async function run() {
         async saveSettings() { },
         isReverseUpdating: false
     };
-    const dirtyManager = new SyncManager(dirtyPlugin as any);
+    const dirtyManager = new SyncManager(withTestTranslator(dirtyPlugin, "zh") as any);
     await assert.rejects(() => dirtyManager.updateTaskInDidaList(dirtyTask as any), /更新任务失败/);
     assert.equal(dirtyPlugin.settings.pendingSyncOperations.length, 1, "failed uploads must remain in the outbox");
     uploadShouldFail = false;
@@ -243,7 +253,7 @@ async function run() {
         isReverseUpdating: false
     };
     const emptyResponseTask = { id: "t1", didaId: "r1", title: "Task", content: "", status: 0, projectId: "p1" };
-    const emptyResponseManager = new SyncManager(emptyResponsePlugin as any);
+    const emptyResponseManager = new SyncManager(withTestTranslator(emptyResponsePlugin, "zh") as any);
     await emptyResponseManager.updateTaskInDidaList(emptyResponseTask as any);
 
     const placementTask = {
@@ -302,7 +312,7 @@ async function run() {
         async saveSettings() { },
         isReverseUpdating: false
     };
-    const placementManager = new SyncManager(placementPlugin as any);
+    const placementManager = new SyncManager(withTestTranslator(placementPlugin, "zh") as any);
     const placementResult = await placementManager.flushPendingOperations();
     assert.equal(placementResult.uploaded, 0);
     assert.equal(placementResult.failed.length, 1);
@@ -325,7 +335,7 @@ async function run() {
         refreshTaskView() { },
         isReverseUpdating: false
     };
-    const lifecycleManager = new SyncManager(lifecyclePlugin as any);
+    const lifecycleManager = new SyncManager(withTestTranslator(lifecyclePlugin, "zh") as any);
     let releaseFirstUpload: (() => void) | null = null;
     const firstUploadGate = new Promise<void>(resolve => { releaseFirstUpload = resolve; });
     let uploadRuns = 0;
@@ -367,7 +377,7 @@ async function run() {
         async saveSettings() { },
         isReverseUpdating: false
     };
-    const deletionManager = new SyncManager(deletionPlugin as any);
+    const deletionManager = new SyncManager(withTestTranslator(deletionPlugin, "zh") as any);
     const deleted = await deletionManager._decideReverseCompletion(deletedTask, {
         verifyBudget: { value: 20 },
         decisionCache: new Map()
@@ -398,7 +408,7 @@ async function run() {
         async saveSettings() { },
         isReverseUpdating: false
     };
-    const completedManager = new SyncManager(completedPlugin as any);
+    const completedManager = new SyncManager(withTestTranslator(completedPlugin, "zh") as any);
     await completedManager.markExtraTasksAsCompleted([]);
     assert.equal(remotelyCompletedTask.status, 2, "completed history should win over deletion classification");
     assert.equal(remotelyCompletedTask.remoteDeleted, false);

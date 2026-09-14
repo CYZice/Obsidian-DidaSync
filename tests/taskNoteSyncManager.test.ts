@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import Module from "node:module";
+import { MessageKey, MessageParams, translate } from "../src/i18n";
 
 const notices: string[] = [];
 const originalLoad = (Module as any)._load;
@@ -61,6 +62,7 @@ async function run() {
         workspace: { getLeaf: () => ({ openFile: async () => { } }) }
     };
     const plugin = {
+        t(key: MessageKey, params?: MessageParams) { return translate("zh", key, params); },
         settings: {
             accessToken: "",
             tasks: [

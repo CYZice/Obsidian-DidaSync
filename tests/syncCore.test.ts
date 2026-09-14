@@ -50,7 +50,7 @@ async function testRunCoordinator() {
     });
     const timedOut = await timeoutCoordinator.run();
     assert.equal(timedOut.outcome, "failed");
-    assert.match(timedOut.errors[0], /同步运行超时/);
+    assert.match(timedOut.errors[0], /(?:Sync run timed out|同步运行超时)/);
     assert.equal(timeoutCoordinator.getState().isRunning, false);
 }
 

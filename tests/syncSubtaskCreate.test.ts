@@ -1,5 +1,12 @@
 import { strict as assert } from "assert";
 import Module = require("module");
+import { MessageKey, MessageParams, ResolvedLanguage, translate } from "../src/i18n";
+
+function withTestTranslator<T extends object>(plugin: T, language: ResolvedLanguage = "en"): T & { t: (key: MessageKey, params?: MessageParams) => string } {
+    return Object.assign(plugin, {
+        t: (key: MessageKey, params?: MessageParams) => translate(language, key, params)
+    });
+}
 
 const originalLoad = (Module as any)._load;
 (Module as any)._load = function (request: string, parent: unknown, isMain: boolean) {
@@ -64,7 +71,7 @@ async function run() {
         }
     };
 
-    const manager = new SyncManager(plugin);
+    const manager = new SyncManager(withTestTranslator(plugin, "zh"));
     await manager.createTaskInDidaList(task);
 
     assert.equal(calls[0].payload.parentId, "parent-remote");
@@ -253,7 +260,7 @@ async function run() {
             }
         }
     };
-    const inboxProbeManager = new SyncManager(inboxProbePlugin);
+    const inboxProbeManager = new SyncManager(withTestTranslator(inboxProbePlugin, "zh"));
     await inboxProbeManager.deleteTaskInDidaList("remote-inbox-task", "inbox", false);
     assert.equal(inboxProbePlugin.settings.remoteInboxProjectId, "inbox1010590000");
     assert.match(inboxProbeCalls[1].url, /\/project\/inbox1010590000\/task\/probe-remote$/);
@@ -306,7 +313,7 @@ async function run() {
         },
         async saveSettings() { }
     };
-    await new SyncManager(deletedPlugin).markCompletedNativeTasksWithLinks([]);
+    await new SyncManager(withTestTranslator(deletedPlugin, "zh")).markCompletedNativeTasksWithLinks([]);
     assert.equal(deletedMarkdown, "> - [ ] 云端已删除 ⚪ 🗑️");
     assert.equal(deletedPlugin.settings.tasks.length, 0);
 
@@ -452,7 +459,7 @@ async function run() {
             }
         }
     };
-    const convertedNoteManager = new SyncManager(convertedNotePlugin);
+    const convertedNoteManager = new SyncManager(withTestTranslator(convertedNotePlugin, "zh"));
     (convertedNoteManager as any)._refreshReverseCompletionSeenMeta = () => { };
     (convertedNoteManager as any)._scheduleSyncConsistencyFollowUp = () => { };
     const convertedResult = await convertedNoteManager.syncFromDidaList();

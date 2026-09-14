@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import Module from "node:module";
+import { MessageKey, MessageParams, translate } from "../src/i18n";
 
 const notices: string[] = [];
 const originalLoad = (Module as any)._load;
@@ -69,6 +70,7 @@ function makePlugin(app: any) {
     const filters: any[] = [];
     const plugin = {
         app,
+        t(key: MessageKey, params?: MessageParams) { return translate("zh", key, params); },
         settings: {
             enableDidaNoteSync: true,
             accessToken: "token",

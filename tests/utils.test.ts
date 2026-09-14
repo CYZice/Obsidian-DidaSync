@@ -41,7 +41,12 @@ assert.equal(getTimerRemainingSeconds(999, 1_000), 0);
 assert.equal(compareVersions("1.5.4", "1.5.3"), 1);
 assert.equal(compareVersions("1.5", "1.5.0"), 0);
 assert.equal(compareVersions("1.4.9", "1.5.0"), -1);
-assert.deepEqual(translateRepeatFlag("RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE"), { label: "每 2 周的 周一、周三", icon: "repeat" });
+assert.deepEqual(translateRepeatFlag("RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE"), { label: "Every 2 weeks on Mon, Wed", icon: "repeat" });
+assert.deepEqual(translateRepeatFlag("RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE", "zh"), { label: "每 2 周的 周一、周三", icon: "repeat" });
+assert.deepEqual(translateRepeatFlag("RRULE:FREQ=DAILY", "en"), { label: "Daily", icon: "repeat" });
+assert.deepEqual(translateRepeatFlag("RRULE:FREQ=DAILY", "zh"), { label: "每天", icon: "repeat" });
+assert.deepEqual(translateRepeatFlag("RRULE:FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=15", "en"), { label: "Monthly on day 15", icon: "repeat" });
+assert.deepEqual(translateRepeatFlag("RRULE:FREQ=YEARLY;INTERVAL=1;BYMONTH=3;BYMONTHDAY=5", "zh"), { label: "每年 3 月 5 日", icon: "repeat" });
 assert.equal(
     compareProjectGroups(
         { name: "空项目", taskCount: 0 },
