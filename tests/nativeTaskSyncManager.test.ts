@@ -36,8 +36,10 @@ async function run() {
     assert.equal(tasks[0].title, "Plain task");
     assert.equal(tasks[0].priority, 5);
     assert.equal(tasks[0].taskDate, "2026-06-24");
+    assert.equal(tasks[0].parentLineNumber, null);
     assert.equal(tasks[1].isCompleted, true);
     assert.equal(tasks[1].indent, "  ");
+    assert.equal(tasks[1].parentLineNumber, 0);
     assert.equal(tasks[1].didaId, "abc123");
     assert.equal(tasks[1].isAllDay, false);
     assert.match(tasks[1].startDate || "", /T09:00:00/);
@@ -47,6 +49,36 @@ async function run() {
     assert.equal(tasks[3].title, "Disconnected task");
     assert.equal(tasks[3].hasLink, false);
     assert.equal(manager.generateTaskId("A B.md", 2, "hello!"), "A_B_md_2_hello_");
+
+    const hierarchyContent = [
+        "- [ ] Root [🔗Dida](obsidian://dida-task?didaId=root123)",
+        "  - [ ] Child [🔗Dida](obsidian://dida-task?didaId=child123)",
+        "    - [ ] Grandchild",
+        "\t- [ ] Tab sibling",
+        "- [ ] Other root",
+        "    - [ ] Other child"
+    ].join("\n");
+    const hierarchy = manager.detectNativeTasks(hierarchyContent, "Plan.md");
+    assert.deepEqual(
+        hierarchy.map((task: any) => task.parentLineNumber),
+        [null, 0, 1, 1, null, 4]
+    );
+    assert.equal(manager.findParentTask(hierarchyContent, "Plan.md", 2)?.didaId, "child123");
+    assert.equal(manager.findParentTask(hierarchyContent, "Plan.md", 3)?.didaId, "child123");
+    assert.equal(manager.findParentTask(hierarchyContent, "Plan.md", 4), null);
+
+    const quotedHierarchyContent = [
+        "> - [ ] Quoted root [🔗Dida](obsidian://dida-task?didaId=quotedRoot123)",
+        ">   - [ ] Quoted child",
+        "- [ ] Outside root",
+        "  - [ ] Outside child"
+    ].join("\n");
+    const quotedHierarchy = manager.detectNativeTasks(quotedHierarchyContent, "Quoted.md");
+    assert.deepEqual(
+        quotedHierarchy.map((task: any) => task.parentLineNumber),
+        [null, 0, null, 2]
+    );
+    assert.equal(manager.findParentTask(quotedHierarchyContent, "Quoted.md", 1)?.didaId, "quotedRoot123");
 
     (globalThis as any).window.offline();
     assert.equal(manager.getNetworkStatus(), false);

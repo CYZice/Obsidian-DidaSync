@@ -10,6 +10,7 @@ export interface NativeTask {
     lineNumber: number;
     originalLine: string;
     indent: string;
+    parentLineNumber: number | null;
     hasLink: boolean;
     taskDate: string | null;
     startDate: string | null;
@@ -53,6 +54,7 @@ export class NativeTaskSyncManager {
             lines = content.split("\n");
         let inCodeBlock = false,
             codeBlockLang = "";
+        let taskStack: Array<{ task: NativeTask; indentWidth: number; quotePrefix: string }> = [];
         
         for (let i = 0; i < lines.length; i++) {
             var line = lines[i],
@@ -77,7 +79,15 @@ export class NativeTaskSyncManager {
                     const taskDate = parsed.dueDate ? parsed.dueDate.match(/(\d{4}-\d{2}-\d{2})/)?.[1] || null : null;
                     if (parsed.title && parsed.title.length !== 0) {
                         var id = this.generateTaskId(filePath, i, parsed.title);
-                        tasks.push({
+                        const indentWidth = this.getIndentWidth(parsed.indent);
+                        if (taskStack.length > 0 && taskStack[taskStack.length - 1].quotePrefix !== parsed.quotePrefix) {
+                            taskStack = [];
+                        }
+                        while (taskStack.length > 0 && taskStack[taskStack.length - 1].indentWidth >= indentWidth) {
+                            taskStack.pop();
+                        }
+                        const parentTask = taskStack.length > 0 ? taskStack[taskStack.length - 1].task : null;
+                        const nativeTask: NativeTask = {
                             id: id,
                             title: parsed.title,
                             isCompleted: parsed.checkbox === "x",
@@ -86,6 +96,7 @@ export class NativeTaskSyncManager {
                             lineNumber: i,
                             originalLine: line,
                             indent: parsed.indent,
+                            parentLineNumber: parentTask?.lineNumber ?? null,
                             hasLink: !!parsed.didaId,
                             taskDate: taskDate,
                             startDate: parsed.startDate,
@@ -93,12 +104,29 @@ export class NativeTaskSyncManager {
                             isAllDay: parsed.isAllDay,
                             priority: parsed.priority,
                             repeatFlag: parsed.repeatFlag
-                        });
+                        };
+                        tasks.push(nativeTask);
+                        taskStack.push({ task: nativeTask, indentWidth, quotePrefix: parsed.quotePrefix });
                     }
                 }
             }
         }
         return tasks;
+    }
+
+    findParentTask(content: string, filePath: string, lineNumber: number): NativeTask | null {
+        const tasks = this.detectNativeTasks(content, filePath);
+        const task = tasks.find(candidate => candidate.lineNumber === lineNumber);
+        if (!task || task.parentLineNumber === null) return null;
+        return tasks.find(candidate => candidate.lineNumber === task.parentLineNumber) || null;
+    }
+
+    private getIndentWidth(indent: string): number {
+        let width = 0;
+        for (const character of indent) {
+            width += character === "\t" ? 4 - (width % 4) : 1;
+        }
+        return width;
     }
 
     generateTaskId(filePath: string, lineNumber: number, title: string): string {
