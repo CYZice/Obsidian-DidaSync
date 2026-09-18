@@ -36,8 +36,10 @@ async function run() {
     assert.equal(tasks[0].title, "Plain task");
     assert.equal(tasks[0].priority, 5);
     assert.equal(tasks[0].taskDate, "2026-06-24");
+    assert.equal(tasks[0].parentLineNumber, null);
     assert.equal(tasks[1].isCompleted, true);
     assert.equal(tasks[1].indent, "  ");
+    assert.equal(tasks[1].parentLineNumber, 0);
     assert.equal(tasks[1].didaId, "abc123");
     assert.equal(tasks[1].isAllDay, false);
     assert.match(tasks[1].startDate || "", /T09:00:00/);
@@ -47,6 +49,99 @@ async function run() {
     assert.equal(tasks[3].title, "Disconnected task");
     assert.equal(tasks[3].hasLink, false);
     assert.equal(manager.generateTaskId("A B.md", 2, "hello!"), "A_B_md_2_hello_");
+
+    const hierarchyContent = [
+        "- [ ] Root [🔗Dida](obsidian://dida-task?didaId=root123)",
+        "  - [ ] Child [🔗Dida](obsidian://dida-task?didaId=child123)",
+        "    - [ ] Grandchild",
+        "\t- [ ] Tab sibling",
+        "- [ ] Other root",
+        "    - [ ] Other child"
+    ].join("\n");
+    const hierarchy = manager.detectNativeTasks(hierarchyContent, "Plan.md");
+    assert.deepEqual(
+        hierarchy.map((task: any) => task.parentLineNumber),
+        [null, 0, 1, 1, null, 4]
+    );
+    assert.equal(manager.findParentTask(hierarchyContent, "Plan.md", 2)?.didaId, "child123");
+    assert.equal(manager.findParentTask(hierarchyContent, "Plan.md", 3)?.didaId, "child123");
+    assert.equal(manager.findParentTask(hierarchyContent, "Plan.md", 4), null);
+
+    const quotedHierarchyContent = [
+        "> - [ ] Quoted root [🔗Dida](obsidian://dida-task?didaId=quotedRoot123)",
+        ">   - [ ] Quoted child",
+        "- [ ] Outside root",
+        "  - [ ] Outside child"
+    ].join("\n");
+    const quotedHierarchy = manager.detectNativeTasks(quotedHierarchyContent, "Quoted.md");
+    assert.deepEqual(
+        quotedHierarchy.map((task: any) => task.parentLineNumber),
+        [null, 0, null, 2]
+    );
+    assert.equal(manager.findParentTask(quotedHierarchyContent, "Quoted.md", 1)?.didaId, "quotedRoot123");
+
+    const nestedQuoteReturnContent = [
+        "> - [ ] Outer root [🔗Dida](obsidian://dida-task?didaId=outerRoot123)",
+        "> > - [ ] Nested root [🔗Dida](obsidian://dida-task?didaId=nestedRoot123)",
+        "> >   - [ ] Nested child",
+        ">   - [ ] Back to outer child"
+    ].join("\n");
+    const nestedQuoteReturn = manager.detectNativeTasks(nestedQuoteReturnContent, "NestedQuote.md");
+    assert.deepEqual(
+        nestedQuoteReturn.map((task: any) => task.parentLineNumber),
+        [null, null, 1, 0]
+    );
+    assert.equal(manager.findParentTask(nestedQuoteReturnContent, "NestedQuote.md", 3)?.didaId, "outerRoot123");
+
+    const textSeparatedContent = [
+        "- [ ] Earlier root [🔗Dida](obsidian://dida-task?didaId=earlier123)",
+        "A regular paragraph ends the first task hierarchy.",
+        "  - [ ] Later independent task"
+    ].join("\n");
+    const textSeparated = manager.detectNativeTasks(textSeparatedContent, "Separated.md");
+    assert.deepEqual(
+        textSeparated.map((task: any) => task.parentLineNumber),
+        [null, null]
+    );
+    assert.equal(manager.findParentTask(textSeparatedContent, "Separated.md", 2), null);
+
+    const quoteSeparatedContent = [
+        "> - [ ] Earlier quote task [🔗Dida](obsidian://dida-task?didaId=quotedEarlier123)",
+        "A non-quoted paragraph ends the first blockquote.",
+        ">   - [ ] Later independent quote task"
+    ].join("\n");
+    const quoteSeparated = manager.detectNativeTasks(quoteSeparatedContent, "QuoteSeparated.md");
+    assert.deepEqual(
+        quoteSeparated.map((task: any) => task.parentLineNumber),
+        [null, null]
+    );
+    assert.equal(manager.findParentTask(quoteSeparatedContent, "QuoteSeparated.md", 2), null);
+
+    const continuationTextContent = [
+        "- [ ] Parent with description [🔗Dida](obsidian://dida-task?didaId=describedParent123)",
+        "  This explanatory text remains part of the parent task.",
+        "  - [ ] Child after description"
+    ].join("\n");
+    const continuationText = manager.detectNativeTasks(continuationTextContent, "Continuation.md");
+    assert.deepEqual(
+        continuationText.map((task: any) => task.parentLineNumber),
+        [null, 0]
+    );
+    assert.equal(manager.findParentTask(continuationTextContent, "Continuation.md", 2)?.didaId, "describedParent123");
+
+    const nestedCodeBlockContent = [
+        "- [ ] Parent with code [🔗Dida](obsidian://dida-task?didaId=codeParent123)",
+        "  ```ts",
+        "  example();",
+        "  ```",
+        "  - [ ] Child after code block"
+    ].join("\n");
+    const nestedCodeBlock = manager.detectNativeTasks(nestedCodeBlockContent, "CodeBlock.md");
+    assert.deepEqual(
+        nestedCodeBlock.map((task: any) => task.parentLineNumber),
+        [null, 0]
+    );
+    assert.equal(manager.findParentTask(nestedCodeBlockContent, "CodeBlock.md", 4)?.didaId, "codeParent123");
 
     (globalThis as any).window.offline();
     assert.equal(manager.getNetworkStatus(), false);

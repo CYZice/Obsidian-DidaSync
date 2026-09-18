@@ -2823,6 +2823,18 @@ export default class DidaSyncPlugin extends Plugin {
                         new Notice(this.t("notice.taskAlreadySynced"), 3000);
                         return;
                     }
+                    const activeFilePath = this.app.workspace.getActiveFile()?.path || "";
+                    const parentTask = this.settings.enableIndentedSubtasks
+                        ? this.nativeTaskSyncManager.findParentTask(editor.getValue(), activeFilePath, cursor.line)
+                        : null;
+                    if (parentTask && !parentTask.didaId) {
+                        new Notice(this.t("error.parentNotSynced"));
+                        return;
+                    }
+                    const parentId = parentTask?.didaId || null;
+                    const cachedParent = parentId
+                        ? this.settings.tasks.find(task => task.didaId === parentId || task.id === parentId) || null
+                        : null;
                     let project = parsedLine.projectName
                         ? this.findProjectByName(parsedLine.projectName) || this.findProjectById(parsedLine.projectName)
                         : null;
@@ -2830,17 +2842,24 @@ export default class DidaSyncPlugin extends Plugin {
                         new Notice(this.t("error.projectNotFound", { name: parsedLine.projectName }));
                         return;
                     }
+                    if (cachedParent?.projectId && project?.id && !this.areSameDidaProject(cachedParent.projectId, project.id)) {
+                        new Notice(this.t("error.subtaskProjectMismatch"));
+                        return;
+                    }
                     if (project?.isLocalOnly || (project && !project.id)) {
                         const remote = await this.ensureRemoteProjectExists(project);
                         project = { ...project, id: remote.id, name: remote.name || project.name, isLocalOnly: false };
                     }
+                    const projectId = project?.id || cachedParent?.projectId || undefined;
+                    const projectName = project?.name || cachedParent?.projectName || INBOX_PROJECT_NAME;
                     const created = await this.createTaskDirectly(parsedLine.title, {
                         startDate: parsedLine.startDate as any,
                         dueDate: parsedLine.dueDate as any,
                         isAllDay: parsedLine.isAllDay,
                         priority: parsedLine.priority,
                         repeatFlag: parsedLine.repeatFlag as any,
-                        projectId: project?.id || undefined
+                        projectId,
+                        parentId
                     });
                     if (created && created.id) {
                         editor.setLine(cursor.line, formatTaskLine(line, { didaId: created.id, disconnected: false }, this.t("common.untitledTask")));
@@ -2851,8 +2870,8 @@ export default class DidaSyncPlugin extends Plugin {
                             completed: false,
                             status: 0,
                             didaId: created.id,
-                            projectId: created.projectId || project?.id || "inbox",
-                            projectName: project?.name || INBOX_PROJECT_NAME,
+                            projectId: created.projectId || projectId || "inbox",
+                            projectName,
                             createdAt: new Date().toISOString(),
                             updatedAt: new Date().toISOString(),
                             items: [],
@@ -2871,7 +2890,7 @@ export default class DidaSyncPlugin extends Plugin {
                             projectColor: "#F18181",
                             projectClosed: false,
                             projectPermission: "write",
-                            parentId: null
+                            parentId: created.parentId !== undefined ? created.parentId || null : parentId
                         };
                         this.settings.tasks.push(task);
                         await this.saveSettings();
@@ -2970,6 +2989,7 @@ export default class DidaSyncPlugin extends Plugin {
         if (metadata.priority !== undefined) data.priority = metadata.priority;
         if (typeof metadata.repeatFlag === "string") data.repeatFlag = metadata.repeatFlag;
         if (metadata.projectId && metadata.projectId !== "inbox") data.projectId = metadata.projectId;
+        if (metadata.parentId) data.parentId = metadata.parentId;
         try {
             const res = await this.apiClient.makeAuthenticatedRequest(this.apiClient.buildApiUrl("/task"), {
                 method: "POST",

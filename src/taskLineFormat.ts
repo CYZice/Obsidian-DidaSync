@@ -38,7 +38,7 @@ const DISCONNECTED_RE = /(?:^|\s)🗑️(?=\s|$)/;
 const PROJECT_RE = /(?:^|\s)\^\[([^\]]+)\]/;
 
 export function parseTaskLine(line: string): ParsedTaskLine | null {
-    const match = line.match(/^((?:\s*>\s*)*)(\s*)-\s*\[([ xX])\]\s*(.*)$/);
+    const match = line.match(/^((?:(?:[ \t]*>[ \t]?))*)([ \t]*)-\s*\[([ xX])\]\s*(.*)$/);
     if (!match) return null;
 
     const quotePrefix = match[1] || "";
