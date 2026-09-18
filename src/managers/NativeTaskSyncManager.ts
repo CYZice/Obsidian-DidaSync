@@ -80,13 +80,22 @@ export class NativeTaskSyncManager {
                     if (parsed.title && parsed.title.length !== 0) {
                         var id = this.generateTaskId(filePath, i, parsed.title);
                         const indentWidth = this.getIndentWidth(parsed.indent);
-                        if (taskStack.length > 0 && taskStack[taskStack.length - 1].quotePrefix !== parsed.quotePrefix) {
-                            taskStack = [];
+                        const quoteDepth = (prefix: string) => (prefix.match(/>/g) || []).length;
+                        const currentQuoteDepth = quoteDepth(parsed.quotePrefix);
+                        while (taskStack.length > 0) {
+                            const candidate = taskStack[taskStack.length - 1];
+                            const candidateQuoteDepth = quoteDepth(candidate.quotePrefix);
+                            if (candidateQuoteDepth > currentQuoteDepth
+                                || (candidateQuoteDepth === currentQuoteDepth && candidate.indentWidth >= indentWidth)) {
+                                taskStack.pop();
+                                continue;
+                            }
+                            break;
                         }
-                        while (taskStack.length > 0 && taskStack[taskStack.length - 1].indentWidth >= indentWidth) {
-                            taskStack.pop();
-                        }
-                        const parentTask = taskStack.length > 0 ? taskStack[taskStack.length - 1].task : null;
+                        const parentCandidate = taskStack[taskStack.length - 1];
+                        const parentTask = parentCandidate && quoteDepth(parentCandidate.quotePrefix) === currentQuoteDepth
+                            ? parentCandidate.task
+                            : null;
                         const nativeTask: NativeTask = {
                             id: id,
                             title: parsed.title,

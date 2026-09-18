@@ -80,6 +80,19 @@ async function run() {
     );
     assert.equal(manager.findParentTask(quotedHierarchyContent, "Quoted.md", 1)?.didaId, "quotedRoot123");
 
+    const nestedQuoteReturnContent = [
+        "> - [ ] Outer root [🔗Dida](obsidian://dida-task?didaId=outerRoot123)",
+        "> > - [ ] Nested root [🔗Dida](obsidian://dida-task?didaId=nestedRoot123)",
+        "> >   - [ ] Nested child",
+        ">   - [ ] Back to outer child"
+    ].join("\n");
+    const nestedQuoteReturn = manager.detectNativeTasks(nestedQuoteReturnContent, "NestedQuote.md");
+    assert.deepEqual(
+        nestedQuoteReturn.map((task: any) => task.parentLineNumber),
+        [null, null, 1, 0]
+    );
+    assert.equal(manager.findParentTask(nestedQuoteReturnContent, "NestedQuote.md", 3)?.didaId, "outerRoot123");
+
     (globalThis as any).window.offline();
     assert.equal(manager.getNetworkStatus(), false);
     (globalThis as any).window.online();
