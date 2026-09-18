@@ -81,7 +81,7 @@ For the full English walkthrough, see the [User Guide](./docs/USER_GUIDE_EN.md).
 2. Type native Obsidian task syntax such as `- [ ] ` in a Markdown document.
 3. DidaSync opens an action menu for creating, linking, or enriching the task with dates and details.
 4. After sync, the line gets a Dida link appended, and later checking `- [x]` can also update the remote task status.
-5. To create a subtask, sync or link its parent first, then indent the child checkbox beneath it before choosing **Insert/create Dida task**.
+5. To create a subtask, first enable **Create subtasks from indentation** in Sync settings, then sync or link its parent and indent the child checkbox beneath it before choosing **Insert/create Dida task**.
 
 ### 2. Organize Nested Subtasks And Drag Structure
 

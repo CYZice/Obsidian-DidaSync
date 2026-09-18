@@ -348,6 +348,7 @@ export interface DidaSyncSettings {
     autoCleanInterval: number; // in months
 
     enableNativeTaskSync: boolean;
+    enableIndentedSubtasks: boolean;
 
     // Task note sync settings
     taskNoteSyncTargetBlockHeader: string;
@@ -436,6 +437,7 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     autoCleanCompletedTasks: false,
     autoCleanInterval: 1,
     enableNativeTaskSync: true,
+    enableIndentedSubtasks: false,
     taskNoteSyncTargetBlockHeader: "> [!todo]",
     taskNoteSyncFolder: "DidaSync",
     taskNoteSyncPathPatterns: {

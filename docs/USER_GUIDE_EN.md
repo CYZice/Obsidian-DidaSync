@@ -16,7 +16,7 @@ The sidebar lets you create, edit, complete, reorder, and move tasks between pro
 
 Enable **Native task sync** under Sync settings. Use a normal `- [ ]` task in Markdown, then run **Insert/create Dida task** to create or link it. Checking the task later updates the remote task.
 
-Indented checkboxes become subtasks of the nearest preceding checkbox with less indentation and inherit the parent's project. Sync or link each parent before creating its children; if the parent has no Dida link yet, or the child explicitly names a different project, DidaSync stops instead of creating an inconsistent task.
+When **Create subtasks from indentation** is enabled, indented checkboxes become subtasks of the nearest preceding checkbox with less indentation and inherit the parent's project. Sync or link each parent before creating its children; if the parent has no Dida link yet, or the child explicitly names a different project, DidaSync stops instead of creating an inconsistent task.
 
 ## Write tasks to notes
 

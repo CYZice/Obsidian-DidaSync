@@ -41,6 +41,7 @@ type PluginOptions = {
     parentProjectName?: string;
     childProjectName?: string;
     responseParentId?: string | null;
+    enableIndentedSubtasks?: boolean;
 };
 
 function makePlugin(options: PluginOptions = {}) {
@@ -82,7 +83,8 @@ function makePlugin(options: PluginOptions = {}) {
             { id: "p1", name: "Project One", isArchived: false, isLocalOnly: false },
             { id: "p2", name: "Project Two", isArchived: false, isLocalOnly: false }
         ],
-        projectIcons: {}
+        projectIcons: {},
+        enableIndentedSubtasks: options.enableIndentedSubtasks === true
     };
     plugin.app = {
         workspace: {
@@ -136,7 +138,7 @@ function makePlugin(options: PluginOptions = {}) {
 async function run() {
     try {
         {
-            const { plugin, editor, requests, taskLine, cursor, getUpdatedLine } = makePlugin({ parentDidaId: "parent123" });
+            const { plugin, editor, requests, taskLine, cursor, getUpdatedLine } = makePlugin({ parentDidaId: "parent123", enableIndentedSubtasks: true });
             await plugin.syncTaskToDidaList(editor, cursor, taskLine);
 
             assert.equal(requests.length, 1);
@@ -150,8 +152,17 @@ async function run() {
         }
 
         {
+            const { plugin, editor, requests, taskLine, cursor } = makePlugin({ parentDidaId: "parent123" });
+            await plugin.syncTaskToDidaList(editor, cursor, taskLine);
+
+            assert.equal(requests.length, 1);
+            assert.equal("parentId" in requests[0], false);
+            assert.equal(plugin.settings.tasks[1].parentId, null);
+        }
+
+        {
             notices.length = 0;
-            const { plugin, editor, requests, taskLine, cursor } = makePlugin();
+            const { plugin, editor, requests, taskLine, cursor } = makePlugin({ enableIndentedSubtasks: true });
             await plugin.syncTaskToDidaList(editor, cursor, taskLine);
 
             assert.equal(requests.length, 0);
@@ -171,6 +182,7 @@ async function run() {
         {
             const { plugin, editor, taskLine, cursor } = makePlugin({
                 parentDidaId: "parent123",
+                enableIndentedSubtasks: true,
                 responseParentId: null
             });
             await plugin.syncTaskToDidaList(editor, cursor, taskLine);
@@ -183,6 +195,7 @@ async function run() {
             notices.length = 0;
             const { plugin, editor, requests, taskLine, cursor } = makePlugin({
                 parentDidaId: "parent123",
+                enableIndentedSubtasks: true,
                 childProjectName: "Project Two"
             });
             await plugin.syncTaskToDidaList(editor, cursor, taskLine);

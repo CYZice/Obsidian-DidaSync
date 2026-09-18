@@ -2824,7 +2824,9 @@ export default class DidaSyncPlugin extends Plugin {
                         return;
                     }
                     const activeFilePath = this.app.workspace.getActiveFile()?.path || "";
-                    const parentTask = this.nativeTaskSyncManager.findParentTask(editor.getValue(), activeFilePath, cursor.line);
+                    const parentTask = this.settings.enableIndentedSubtasks
+                        ? this.nativeTaskSyncManager.findParentTask(editor.getValue(), activeFilePath, cursor.line)
+                        : null;
                     if (parentTask && !parentTask.didaId) {
                         new Notice(this.t("error.parentNotSynced"));
                         return;

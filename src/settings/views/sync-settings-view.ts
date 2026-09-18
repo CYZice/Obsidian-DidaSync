@@ -93,6 +93,16 @@ export class SyncSettingsView extends AbstractSettingsView {
                     await this.plugin.saveSettings();
                 }));
 
+        new Setting(containerEl)
+            .setName(this.t("settings.sync.indentedSubtasks.name"))
+            .setDesc(this.t("settings.sync.indentedSubtasks.desc"))
+            .addToggle((toggle) => toggle
+                .setValue(this.plugin.settings.enableIndentedSubtasks)
+                .onChange(async (value) => {
+                    this.plugin.settings.enableIndentedSubtasks = value;
+                    await this.plugin.saveSettings();
+                }));
+
         containerEl.createEl("h3", { text: this.t("settings.sync.heading.notes") });
 
         const didaNoteInfo = containerEl.createDiv("dida-settings-info dida-settings-info--primary");
