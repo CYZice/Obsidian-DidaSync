@@ -61,6 +61,7 @@ export class NativeTaskSyncManager {
                 codeBlockMatch = line.match(/^(\s*)```(\w*)/);
             
             if (codeBlockMatch) {
+                taskStack = this.retainTaskScopeForContinuation(taskStack, line);
                 if (inCodeBlock) {
                     inCodeBlock = false;
                     codeBlockLang = "";
@@ -71,7 +72,10 @@ export class NativeTaskSyncManager {
             } else if (!inCodeBlock) {
                 if (line.includes("`")) {
                     let inlineCodeMatch = line.match(/^(\s*)-\s*\[([ x])\]\s*(.+)$/);
-                    if (inlineCodeMatch && inlineCodeMatch[3].match(/^`[^`]*`$/)) continue;
+                    if (inlineCodeMatch && inlineCodeMatch[3].match(/^`[^`]*`$/)) {
+                        taskStack = this.retainTaskScopeForContinuation(taskStack, line);
+                        continue;
+                    }
                 }
                 
                 const parsed = parseTaskLine(line);
@@ -116,11 +120,33 @@ export class NativeTaskSyncManager {
                         };
                         tasks.push(nativeTask);
                         taskStack.push({ task: nativeTask, indentWidth, quotePrefix: parsed.quotePrefix });
+                    } else if (line.trim().length > 0) {
+                        taskStack = this.retainTaskScopeForContinuation(taskStack, line);
                     }
+                } else if (line.trim().length > 0) {
+                    taskStack = this.retainTaskScopeForContinuation(taskStack, line);
                 }
             }
         }
         return tasks;
+    }
+
+    private retainTaskScopeForContinuation(
+        taskStack: Array<{ task: NativeTask; indentWidth: number; quotePrefix: string }>,
+        line: string
+    ): Array<{ task: NativeTask; indentWidth: number; quotePrefix: string }> {
+        const match = line.match(/^((?:(?:[ \t]*>[ \t]?))*)([ \t]*)/);
+        if (!match) return [];
+
+        const quoteDepth = (prefix: string) => (prefix.match(/>/g) || []).length;
+        const currentQuoteDepth = quoteDepth(match[1] || "");
+        const currentIndentWidth = this.getIndentWidth(match[2] || "");
+        for (let index = taskStack.length - 1; index >= 0; index--) {
+            const candidate = taskStack[index];
+            if (quoteDepth(candidate.quotePrefix) !== currentQuoteDepth) continue;
+            if (currentIndentWidth > candidate.indentWidth) return taskStack.slice(0, index + 1);
+        }
+        return [];
     }
 
     findParentTask(content: string, filePath: string, lineNumber: number): NativeTask | null {
