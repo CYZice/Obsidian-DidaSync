@@ -2708,7 +2708,7 @@ export class TaskView extends ItemView {
     }
 
     getNoteSyncRunUpdatedCount(lastRun: DidaNoteSyncRunState) {
-        return lastRun.synced + lastRun.pushed;
+        return lastRun.synced + lastRun.pushed + (lastRun.renamed || 0);
     }
 
     getNoteRecordMeta(record: DidaNoteSyncRecord, fileMissing: boolean) {

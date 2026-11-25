@@ -1,13 +1,11 @@
-import { App, normalizePath, Notice, TFile } from "obsidian";
+import { App, normalizePath, Notice, TAbstractFile, TFile } from "obsidian";
 import DidaSyncPlugin from "../main";
 import { DUPLICATE_LOCAL_FILE_MARKER, DidaNoteSyncRecord, DidaNoteSyncRunSource, DidaNoteSyncStatus, DidaNoteSyncSummary, DidaTask, INBOX_PROJECT_NAME } from "../types";
 import { resolveWholeEntityConflict } from "../sync/WholeEntityConflictPolicy";
 import { LocalDeletionTracker } from "../sync/LocalDeletionTracker";
-
-interface ParsedNoteFile {
-    frontmatter: Record<string, any>;
-    body: string;
-}
+import { NoteFileLocator } from "../sync/NoteFileLocator";
+import { ParsedNoteFile, parseNoteFile, renderNoteDocument } from "../noteDocument";
+import { UNTITLED_NOTE_STEM, buildConflictStem, hasLeadingTitleHeading, sanitizeNoteFilenameStem, stripLeadingTitleHeading } from "../noteFilename";
 
 interface NoteSyncOptions {
     silent?: boolean;
@@ -20,6 +18,18 @@ interface LocalNoteMatch {
     parsed: ParsedNoteFile;
 }
 
+type NoteSyncOutcome = "synced" | "pushed" | "conflicts" | "skipped";
+
+interface NoteSyncResult {
+    result: NoteSyncOutcome;
+    renamed: boolean;
+}
+
+interface RecordExtraFields {
+    localFileStem?: string;
+    contentFormat?: "heading" | "plain";
+}
+
 /**
  * Persisted, non-localized text. Existing vaults already store this exact string
  * as `record.error`, and duplicate detection relies on it, so it must keep its
@@ -27,15 +37,22 @@ interface LocalNoteMatch {
  */
 const DUPLICATE_LOCAL_FILE_ERROR = "检测到多个本地 Markdown 拥有相同 didaNoteId，请先手动清理重复文件。";
 
+/** A rename event that we caused ourselves is ignored for this long. */
+const EXPECTED_RENAME_TTL_MS = 10_000;
+
 export class NoteSyncManager {
     app: App;
     plugin: DidaSyncPlugin;
     private localDeletionTracker: LocalDeletionTracker;
+    private noteLocator: NoteFileLocator;
+    private expectedRenamePaths = new Map<string, number>();
+    private lowerPathCache: Set<string> | null = null;
 
     constructor(app: App, plugin: DidaSyncPlugin) {
         this.app = app;
         this.plugin = plugin;
         this.localDeletionTracker = new LocalDeletionTracker(app, plugin);
+        this.noteLocator = new NoteFileLocator(app, () => this.plugin.settings.didaNoteSyncFolder || "");
     }
 
     async syncNow(options: NoteSyncOptions = {}): Promise<DidaNoteSyncSummary> {
@@ -57,21 +74,27 @@ export class NoteSyncManager {
             }
 
             this.clearCachedNoteTasks();
-            await this.localDeletionTracker.scan();
+            this.noteLocator.begin();
+            try {
+                await this.localDeletionTracker.scan();
 
-            const remoteNotes = await this.fetchRemoteNotes();
-            summary.fetched = remoteNotes.length;
-            summary.missing = this.markMissingRemoteRecords(remoteNotes);
+                const remoteNotes = await this.fetchRemoteNotes();
+                summary.fetched = remoteNotes.length;
+                summary.missing = this.markMissingRemoteRecords(remoteNotes);
 
-            for (const note of remoteNotes) {
-                try {
-                    const result = await this.syncRemoteNote(note);
-                    summary[result]++;
-                } catch (error: any) {
-                    const message = this.normalizeErrorMessage(error, this.plugin.t("noteSync.failed"));
-                    summary.errors.push(message);
-                    await this.markNoteError(note, message);
+                for (const note of remoteNotes) {
+                    try {
+                        const result = await this.syncRemoteNote(note);
+                        summary[result.result]++;
+                        if (result.renamed) summary.renamed = (summary.renamed || 0) + 1;
+                    } catch (error: any) {
+                        const message = this.normalizeErrorMessage(error, this.plugin.t("noteSync.failed"));
+                        summary.errors.push(message);
+                        await this.markNoteError(note, message);
+                    }
                 }
+            } finally {
+                this.noteLocator.end();
             }
 
             summary.outcome = this.resolveSummaryOutcome(summary);
@@ -133,6 +156,53 @@ export class NoteSyncManager {
         return true;
     }
 
+    /**
+     * Handle a vault rename. Updates the sync record immediately so a rename is
+     * never mistaken for a deletion, and reports whether a note sync should run
+     * to push the new file name as the remote title.
+     */
+    async handleFileRename(file: TAbstractFile, oldPath: string): Promise<boolean> {
+        try {
+            if (!(file instanceof TFile) || file.extension !== "md") return false;
+            if (!this.plugin.settings.enableDidaNoteSync) return false;
+
+            const newPath = normalizePath(file.path);
+            const newKey = this.normalizeComparablePath(newPath);
+            this.pruneExpectedRenames();
+            if (this.expectedRenamePaths.has(newKey)) {
+                // Rename performed by the plugin itself; the sync loop already
+                // updated the record and must not be triggered again.
+                this.expectedRenamePaths.delete(newKey);
+                return false;
+            }
+
+            const oldKey = this.normalizeComparablePath(oldPath || "");
+            const records = Array.isArray(this.plugin.settings.didaNoteSyncRecords)
+                ? this.plugin.settings.didaNoteSyncRecords
+                : [];
+            const record = records.find((item) => this.normalizeComparablePath(item.path) === oldKey)
+                || records.find((item) => this.normalizeComparablePath(item.path) === newKey);
+            if (!record) return false;
+
+            let changed = false;
+            if (!record.localFileStem) {
+                record.localFileStem = this.stemOfPath(oldPath || record.path);
+                changed = true;
+            }
+            if (this.normalizeComparablePath(record.path) !== newKey) {
+                record.path = newPath;
+                changed = true;
+            }
+            if (changed) await this.plugin.saveSettings();
+
+            if (!this.isTitleToFilenameEnabled()) return false;
+            if ((this.plugin.settings.detachedSyncEntities || []).includes(`note:${record.didaId}`)) return false;
+            return file.basename !== record.localFileStem;
+        } catch (_error) {
+            return false;
+        }
+    }
+
     async forcePullRecord(didaId: string): Promise<boolean> {
         const record = await this.ensureRecord(didaId);
         if (!record) throw new Error(this.plugin.t("noteSync.recordMissing"));
@@ -154,13 +224,25 @@ export class NoteSyncManager {
 
         const body = this.buildLocalMarkdownBody(remote, this.getNoteBody(remote));
         const hash = this.hashMarkdownBody(body);
-        const path = record.path || await this.buildUniqueNotePath(remote, didaId);
+        const path = record.path || await this.buildNotePath(remote, didaId);
         const file = await this.ensureNoteFile(path, remote);
-        await this.writeSyncedFile(file, remote, body, hash, "synced");
-        this.upsertRecord(remote, file.path, hash, "synced");
+        const parsed = await this.readParsedFile(file);
+        await this.writeSyncedFile(file, remote, body, hash, "synced", parsed);
+        let finalFile = file;
+        let renamed = false;
+        if (this.isTitleToFilenameEnabled()) {
+            const desired = await this.renameToDesiredPath(file, remote, didaId);
+            finalFile = desired.file;
+            renamed = desired.renamed;
+        }
+        this.upsertRecord(remote, finalFile.path, hash, "synced", undefined, {
+            localFileStem: finalFile.basename,
+            contentFormat: this.isTitleToFilenameEnabled() ? "plain" : "heading"
+        });
         await this.persistManualActionSummary({
             synced: 1,
             pushed: 0,
+            renamed: renamed ? 1 : 0,
             summaryText: this.plugin.t("noteSync.updated")
         });
         return true;
@@ -171,17 +253,17 @@ export class NoteSyncManager {
         if (!record) throw new Error(this.plugin.t("noteSync.recordMissing"));
         if (this.isDuplicateLocalFileError(record.error)) throw new Error(record.error || DUPLICATE_LOCAL_FILE_ERROR);
 
-        const file = this.app.vault.getAbstractFileByPath(record.path);
-        if (!(file instanceof TFile)) throw new Error(this.plugin.t("noteSync.localMissing"));
+        const file = await this.resolveRecordFile(record);
+        if (!file) throw new Error(this.plugin.t("noteSync.localMissing"));
 
         const parsed = await this.readParsedFile(file);
-        const body = parsed.body;
+        const enabled = this.isTitleToFilenameEnabled();
         const note: DidaTask = {
             id: didaId,
             didaId,
             title: record.title || file.basename || "Untitled",
-            content: body,
-            desc: body,
+            content: enabled ? this.canonicalLocalBody(parsed, record) : parsed.body,
+            desc: enabled ? this.canonicalLocalBody(parsed, record) : parsed.body,
             projectId: record.projectId || "",
             projectName: record.projectName,
             status: 0,
@@ -190,10 +272,18 @@ export class NoteSyncManager {
             etag: record.etag || undefined,
             updatedAt: record.remoteModifiedTime || undefined
         };
-        await this.pushLocalToRemote(note, body);
+        const localTitleChanged = !!record.localFileStem && file.basename !== record.localFileStem;
+        const body = enabled ? this.canonicalLocalBody(parsed, record) : parsed.body;
+        const titleOverride = enabled
+            ? (localTitleChanged ? file.basename : (record.title || this.getDesiredStem(note)))
+            : undefined;
+        await this.pushLocalToRemote(note, body, titleOverride);
         const hash = this.hashMarkdownBody(body);
-        await this.writeSyncedFile(file, note, body, hash, "synced");
-        this.upsertRecord(note, file.path, hash, "synced");
+        await this.writeSyncedFile(file, note, body, hash, "synced", parsed);
+        this.upsertRecord(note, file.path, hash, "synced", undefined, {
+            localFileStem: file.basename,
+            contentFormat: enabled ? "plain" : "heading"
+        });
         await this.persistManualActionSummary({
             synced: 0,
             pushed: 1,
@@ -212,7 +302,8 @@ export class NoteSyncManager {
             skipped: 0,
             missing: 0,
             errors: [],
-            summaryText: ""
+            summaryText: "",
+            renamed: 0
         };
     }
 
@@ -239,7 +330,12 @@ export class NoteSyncManager {
     private shouldSilenceSummaryNotice(summary: DidaNoteSyncSummary, options: NoteSyncOptions) {
         if (options.silent === true) return true;
         if (options.suppressNoopNotice !== true) return false;
-        const hasChanges = summary.synced > 0 || summary.pushed > 0 || summary.conflicts > 0 || summary.missing > 0 || summary.errors.length > 0;
+        const hasChanges = summary.synced > 0
+            || summary.pushed > 0
+            || (summary.renamed || 0) > 0
+            || summary.conflicts > 0
+            || summary.missing > 0
+            || summary.errors.length > 0;
         return !hasChanges;
     }
 
@@ -247,6 +343,7 @@ export class NoteSyncManager {
         synced: number;
         pushed: number;
         summaryText: string;
+        renamed?: number;
     }) {
         const errors = this.collectRecordErrors();
         const summary: DidaNoteSyncSummary = {
@@ -258,7 +355,8 @@ export class NoteSyncManager {
             skipped: 0,
             missing: this.countMissingRecords(),
             errors,
-            summaryText: partial.summaryText
+            summaryText: partial.summaryText,
+            renamed: partial.renamed || 0
         };
         await this.persistSummary(summary, "manual", new Date().toISOString(), true);
     }
@@ -272,7 +370,7 @@ export class NoteSyncManager {
     }
 
     private resolveSummaryOutcome(summary: DidaNoteSyncSummary): DidaNoteSyncSummary["outcome"] {
-        const hasChanges = summary.synced > 0 || summary.pushed > 0;
+        const hasChanges = summary.synced > 0 || summary.pushed > 0 || (summary.renamed || 0) > 0;
         if (summary.errors.length > 0) {
             return hasChanges || summary.conflicts > 0 || summary.missing > 0 ? "partial" : "failed";
         }
@@ -287,6 +385,7 @@ export class NoteSyncManager {
         const changedParts: string[] = [];
         if (summary.synced > 0) changedParts.push(this.plugin.t("noteSync.summaryPulled", { count: summary.synced }));
         if (summary.pushed > 0) changedParts.push(this.plugin.t("noteSync.summaryPushed", { count: summary.pushed }));
+        if ((summary.renamed || 0) > 0) changedParts.push(this.plugin.t("noteSync.summaryRenamed", { count: summary.renamed }));
         if (summary.missing > 0) changedParts.push(this.plugin.t("noteSync.summaryMissing", { count: summary.missing }));
         if (changedParts.length > 0) return this.plugin.t("noteSync.summaryDone", { parts: changedParts.join(this.plugin.t("modal.visibility.join")) });
         if (summary.fetched === 0) return this.plugin.t("noteSync.nothingToSync");
@@ -300,30 +399,73 @@ export class NoteSyncManager {
         return typeof message === "string" && message.trim() ? message.trim() : fallback;
     }
 
-    private async syncRemoteNote(note: DidaTask): Promise<"synced" | "pushed" | "conflicts" | "skipped"> {
-        const didaId = note.didaId || note.id;
-        if (!didaId) return "skipped";
+    private isTitleToFilenameEnabled(): boolean {
+        return this.plugin.settings.didaNoteSyncTitleToFilename === true;
+    }
 
-        const body = this.buildLocalMarkdownBody(note, this.getNoteBody(note));
+    private async syncRemoteNote(note: DidaTask): Promise<NoteSyncResult> {
+        const didaId = note.didaId || note.id;
+        if (!didaId) return { result: "skipped", renamed: false };
+
+        const enabled = this.isTitleToFilenameEnabled();
+        const remoteBody = this.normalizeBody(this.getNoteBody(note));
+        const remoteTitle = this.getRemoteNoteTitle(note);
+        const body = this.buildLocalMarkdownBody(note, remoteBody);
         const remoteHash = this.hashMarkdownBody(body);
         const record = await this.ensureRecord(didaId, note);
         if (record && this.isDuplicateLocalFileError(record.error)) {
             throw new Error(record.error || DUPLICATE_LOCAL_FILE_ERROR);
         }
         if (record && this.localDeletionTracker.list().some(candidate => candidate.id === `note:${didaId}`)) {
-            return "skipped";
+            return { result: "skipped", renamed: false };
         }
 
-        const path = record?.path || await this.buildUniqueNotePath(note, didaId);
-        const file = await this.ensureNoteFile(path, note);
+        let file: TFile | null = null;
+        if (record?.path) {
+            const existing = this.app.vault.getAbstractFileByPath(normalizePath(record.path));
+            if (existing instanceof TFile) file = existing;
+        }
+        if (!file) {
+            const hits = await this.noteLocator.find(didaId);
+            if (hits.length > 0) file = hits[0].file;
+        }
 
         if (!record) {
-            await this.writeSyncedFile(file, note, body, remoteHash, "synced");
+            const path = await this.buildNotePath(note, didaId);
+            file = await this.ensureNoteFile(path, note);
             this.upsertRecord(note, file.path, remoteHash, "synced");
-            return "synced";
+            return { result: "synced", renamed: false };
+        }
+
+        if (!file) {
+            // The record points at a vanished file and no file with this
+            // didaNoteId exists anywhere in the note folder: recreate it.
+            const path = record.path || await this.buildNotePath(note, didaId);
+            file = await this.ensureNoteFile(path, note);
+            this.upsertRecord(note, file.path, remoteHash, "synced");
+            return { result: "synced", renamed: false };
+        }
+
+        if (this.normalizeComparablePath(record.path) !== this.normalizeComparablePath(file.path)) {
+            record.path = file.path;
+            await this.plugin.saveSettings();
         }
 
         const current = await this.readParsedFile(file);
+        if (enabled) {
+            return await this.syncRemoteNoteWithTitleFilename(note, record, file, current, remoteTitle, body, remoteHash);
+        }
+        return await this.syncRemoteNoteLegacy(note, record, file, current, body, remoteHash);
+    }
+
+    private async syncRemoteNoteLegacy(
+        note: DidaTask,
+        record: DidaNoteSyncRecord,
+        file: TFile,
+        current: ParsedNoteFile,
+        body: string,
+        remoteHash: string
+    ): Promise<NoteSyncResult> {
         const localHash = this.hashMarkdownBody(current.body);
         const remoteChanged = this.remoteChanged(record, note, remoteHash);
         const localChanged = localHash !== record.lastSyncedContentHash;
@@ -339,36 +481,164 @@ export class NoteSyncManager {
             if (decision === "local") {
                 await this.pushLocalToRemote(note, current.body);
                 const pushedHash = this.hashMarkdownBody(current.body);
-                await this.writeSyncedFile(file, note, current.body, pushedHash, "synced");
+                await this.writeSyncedFile(file, note, current.body, pushedHash, "synced", current);
                 this.upsertRecord(note, file.path, pushedHash, "synced");
-                return "pushed";
+                return { result: "pushed", renamed: false };
             }
-            await this.writeSyncedFile(file, note, body, remoteHash, "synced");
+            await this.writeSyncedFile(file, note, body, remoteHash, "synced", current);
             this.upsertRecord(note, file.path, remoteHash, "synced");
-            return "synced";
+            return { result: "synced", renamed: false };
         }
 
         if (localChanged) {
             await this.pushLocalToRemote(note, current.body);
             const pushedHash = this.hashMarkdownBody(current.body);
-            await this.writeSyncedFile(file, note, current.body, pushedHash, "synced");
+            await this.writeSyncedFile(file, note, current.body, pushedHash, "synced", current);
             this.upsertRecord(note, file.path, pushedHash, "synced");
-            return "pushed";
+            return { result: "pushed", renamed: false };
         }
 
         if (remoteChanged) {
-            await this.writeSyncedFile(file, note, body, remoteHash, "synced");
+            await this.writeSyncedFile(file, note, body, remoteHash, "synced", current);
             this.upsertRecord(note, file.path, remoteHash, "synced");
-            return "synced";
+            return { result: "synced", renamed: false };
         }
 
-        this.upsertRecord(
-            note,
-            file.path,
-            record.lastSyncedContentHash,
-            "synced"
-        );
-        return "skipped";
+        this.upsertRecord(note, file.path, record.lastSyncedContentHash, "synced");
+        return { result: "skipped", renamed: false };
+    }
+
+    private async syncRemoteNoteWithTitleFilename(
+        note: DidaTask,
+        record: DidaNoteSyncRecord,
+        file: TFile,
+        current: ParsedNoteFile,
+        remoteTitle: string,
+        remoteBodyMarkdown: string,
+        remoteHash: string
+    ): Promise<NoteSyncResult> {
+        const didaId = note.didaId || note.id;
+        if (!didaId) return { result: "skipped", renamed: false };
+
+        const fileStem = file.basename;
+        const recordStem = record.localFileStem;
+        const localTitleChanged = !!recordStem && fileStem !== recordStem;
+        const recordedTitle = String(record.title || "").trim();
+        const remoteTitleChanged = remoteTitle !== recordedTitle;
+        const remoteMetaChanged = this.remoteMetaChanged(record, note);
+
+        if (record.contentFormat !== "plain") {
+            // One-time migration from the legacy `## 标题` + `标题-<id>.md` layout.
+            const localBody = stripLeadingTitleHeading(current.body, [record.title, remoteTitle, "Untitled"]);
+            const localHash = this.hashMarkdownBody(localBody);
+            const contentMatchesRemote = localHash === remoteHash;
+
+            if (contentMatchesRemote) {
+                if (localTitleChanged) {
+                    await this.pushLocalToRemote(note, localBody, fileStem);
+                    await this.writeSyncedFile(file, note, localBody, localHash, "synced", current);
+                    this.upsertRecord(note, file.path, localHash, "synced", undefined, {
+                        localFileStem: fileStem,
+                        contentFormat: "plain"
+                    });
+                    return { result: "pushed", renamed: false };
+                }
+                await this.writeSyncedFile(file, note, remoteBodyMarkdown, remoteHash, "synced", current);
+                const desired = await this.renameToDesiredPath(file, note, didaId);
+                this.upsertRecord(note, desired.file.path, remoteHash, "synced", undefined, {
+                    localFileStem: desired.file.basename,
+                    contentFormat: "plain"
+                });
+                return { result: "synced", renamed: desired.renamed };
+            }
+
+            if (remoteMetaChanged || remoteTitleChanged) {
+                const decision = resolveWholeEntityConflict({
+                    localModifiedAt: file.stat?.mtime,
+                    remoteModifiedAt: (note as any).updatedAt || (note as any).modifiedTime
+                });
+                if (decision === "unresolvable") {
+                    throw new Error(this.plugin.t("noteSync.conflictTimestampsUncomparable"));
+                }
+                if (decision === "local") {
+                    const pushTitle = localTitleChanged ? fileStem : remoteTitle;
+                    await this.pushLocalToRemote(note, localBody, pushTitle);
+                    await this.writeSyncedFile(file, note, localBody, localHash, "synced", current);
+                    this.upsertRecord(note, file.path, localHash, "synced", undefined, {
+                        localFileStem: fileStem,
+                        contentFormat: "plain"
+                    });
+                    return { result: "pushed", renamed: false };
+                }
+                await this.writeSyncedFile(file, note, remoteBodyMarkdown, remoteHash, "synced", current);
+                const desired = await this.renameToDesiredPath(file, note, didaId);
+                this.upsertRecord(note, desired.file.path, remoteHash, "synced", undefined, {
+                    localFileStem: desired.file.basename,
+                    contentFormat: "plain"
+                });
+                return { result: "synced", renamed: desired.renamed };
+            }
+
+            const pushTitle = localTitleChanged ? fileStem : remoteTitle;
+            await this.pushLocalToRemote(note, localBody, pushTitle);
+            await this.writeSyncedFile(file, note, localBody, localHash, "synced", current);
+            let resultFile = file;
+            let renamed = false;
+            if (!localTitleChanged) {
+                const desired = await this.renameToDesiredPath(file, note, didaId);
+                resultFile = desired.file;
+                renamed = desired.renamed;
+            }
+            this.upsertRecord(note, resultFile.path, localHash, "synced", undefined, {
+                localFileStem: resultFile.basename,
+                contentFormat: "plain"
+            });
+            return { result: "pushed", renamed };
+        }
+
+        const localBody = this.normalizeBody(current.body);
+        const localHash = this.hashMarkdownBody(localBody);
+        const localChanged = localHash !== record.lastSyncedContentHash;
+        const remoteChanged = remoteHash !== record.lastSyncedContentHash || remoteMetaChanged;
+
+        if (!localChanged && !localTitleChanged && !remoteChanged && !remoteTitleChanged) {
+            this.upsertRecord(note, file.path, record.lastSyncedContentHash, "synced");
+            return { result: "skipped", renamed: false };
+        }
+
+        if ((localChanged || localTitleChanged) && (remoteChanged || remoteTitleChanged)) {
+            const decision = resolveWholeEntityConflict({
+                localModifiedAt: file.stat?.mtime,
+                remoteModifiedAt: (note as any).updatedAt || (note as any).modifiedTime
+            });
+            if (decision === "unresolvable") {
+                throw new Error(this.plugin.t("noteSync.conflictTimestampsUncomparable"));
+            }
+            if (decision === "local") {
+                const pushTitle = localTitleChanged ? fileStem : remoteTitle;
+                await this.pushLocalToRemote(note, localBody, pushTitle);
+                await this.writeSyncedFile(file, note, localBody, localHash, "synced", current);
+                this.upsertRecord(note, file.path, localHash, "synced");
+                return { result: "pushed", renamed: false };
+            }
+            await this.writeSyncedFile(file, note, remoteBodyMarkdown, remoteHash, "synced", current);
+            const desired = await this.renameToDesiredPath(file, note, didaId);
+            this.upsertRecord(note, desired.file.path, remoteHash, "synced");
+            return { result: "synced", renamed: desired.renamed };
+        }
+
+        if (localChanged || localTitleChanged) {
+            const pushTitle = localTitleChanged ? fileStem : remoteTitle;
+            await this.pushLocalToRemote(note, localBody, pushTitle);
+            await this.writeSyncedFile(file, note, localBody, localHash, "synced", current);
+            this.upsertRecord(note, file.path, localHash, "synced");
+            return { result: "pushed", renamed: false };
+        }
+
+        await this.writeSyncedFile(file, note, remoteBodyMarkdown, remoteHash, "synced", current);
+        const desired = await this.renameToDesiredPath(file, note, didaId);
+        this.upsertRecord(note, desired.file.path, remoteHash, "synced");
+        return { result: "synced", renamed: desired.renamed };
     }
 
     private async markNoteError(note: DidaTask, message: string) {
@@ -378,19 +648,52 @@ export class NoteSyncManager {
         const record = await this.ensureRecord(didaId, note);
         if (record && this.isDuplicateLocalFileError(record.error)) return;
 
-        const path = record?.path || await this.buildUniqueNotePath(note, didaId);
+        const path = record?.path || await this.buildNotePath(note, didaId);
         const hash = record?.lastSyncedContentHash || this.hashMarkdownBody(this.buildLocalMarkdownBody(note, this.getNoteBody(note)));
-        this.upsertRecord(note, path, hash, "error", message);
+        let contentFormat = record?.contentFormat;
+        if (!contentFormat) {
+            const file = record ? await this.resolveRecordFile(record) : null;
+            if (file) {
+                const parsed = await this.readParsedFile(file);
+                contentFormat = this.isTitleToFilenameEnabled() && !hasLeadingTitleHeading(parsed.body, [note.title, file.basename])
+                    ? "plain"
+                    : "heading";
+            } else {
+                contentFormat = "heading";
+            }
+        }
+        this.upsertRecord(note, path, hash, "error", message, {
+            localFileStem: record?.localFileStem || this.stemOfPath(path),
+            contentFormat
+        });
     }
 
     private getNoteBody(note: DidaTask): string {
         return String(note.content || note.desc || "").replace(/\r\n/g, "\n");
     }
 
+    private getRemoteNoteTitle(note: DidaTask): string {
+        return String(note.title || "").trim();
+    }
+
+    private getDesiredStem(note: DidaTask): string {
+        return sanitizeNoteFilenameStem(this.getRemoteNoteTitle(note));
+    }
+
+    private normalizeBody(body: string): string {
+        return String(body || "").replace(/\r\n/g, "\n").replace(/^\n+/, "").trimEnd();
+    }
+
     private buildLocalMarkdownBody(note: DidaTask, body: string): string {
+        const normalizedBody = this.normalizeBody(body);
+        if (this.isTitleToFilenameEnabled()) return normalizedBody;
         const title = (note.title || "Untitled").trim() || "Untitled";
-        const normalizedBody = String(body || "").replace(/\r\n/g, "\n").replace(/^\n+/, "").trimEnd();
         return normalizedBody ? `## ${title}\n\n${normalizedBody}` : `## ${title}`;
+    }
+
+    private canonicalLocalBody(parsed: ParsedNoteFile, record: DidaNoteSyncRecord, note?: DidaTask): string {
+        if (record.contentFormat === "plain") return this.normalizeBody(parsed.body);
+        return stripLeadingTitleHeading(parsed.body, [record.title, note?.title, "Untitled"]);
     }
 
     private hashMarkdownBody(body: string) {
@@ -420,26 +723,34 @@ export class NoteSyncManager {
     }
 
     private remoteChanged(record: DidaNoteSyncRecord, note: DidaTask, remoteHash: string): boolean {
+        return remoteHash !== record.lastSyncedContentHash || this.remoteMetaChanged(record, note);
+    }
+
+    private remoteMetaChanged(record: DidaNoteSyncRecord, note: DidaTask): boolean {
         const remoteModified = (note as any).updatedAt || (note as any).modifiedTime || null;
-        if (record.status === "conflict") {
-            return (!!note.etag && note.etag !== record.etag) ||
-                (!!remoteModified && remoteModified !== record.remoteModifiedTime);
-        }
-        return remoteHash !== record.lastSyncedContentHash ||
-            (!!note.etag && note.etag !== record.etag) ||
+        return (!!note.etag && note.etag !== record.etag) ||
             (!!remoteModified && remoteModified !== record.remoteModifiedTime);
     }
 
-    private async pushLocalToRemote(note: DidaTask, body: string) {
+    private async pushLocalToRemote(note: DidaTask, body: string, titleOverride?: string) {
         const didaId = note.didaId || note.id;
         if (!didaId) throw new Error(this.plugin.t("noteSync.missingDidaId"));
-        const localNote = this.extractLocalNoteContent(body, note.title);
-        note.title = localNote.title;
+        let title: string;
+        let content: string;
+        if (titleOverride !== undefined) {
+            title = titleOverride;
+            content = this.normalizeBody(body);
+        } else {
+            const localNote = this.extractLocalNoteContent(body, note.title);
+            title = localNote.title;
+            content = localNote.content;
+        }
+        note.title = title;
         const payload = {
             id: didaId,
-            title: localNote.title,
-            content: localNote.content,
-            desc: localNote.content,
+            title,
+            content,
+            desc: content,
             projectId: note.projectId,
             status: note.status ?? 0,
             kind: "NOTE",
@@ -500,6 +811,11 @@ export class NoteSyncManager {
         const projectInfo = note && this.plugin.resolveTaskProjectInfo
             ? this.plugin.resolveTaskProjectInfo(note)
             : { id: note?.projectId, name: note?.projectName || note?.projectId };
+        const enabled = this.isTitleToFilenameEnabled();
+        const candidates = [note?.title || "", file.basename, frontmatter.didaNoteTitle];
+        const contentFormat: "heading" | "plain" = enabled && !hasLeadingTitleHeading(parsed.body, candidates)
+            ? "plain"
+            : "heading";
         return {
             didaId,
             title: note?.title || file.basename || "Untitled",
@@ -512,7 +828,9 @@ export class NoteSyncManager {
             lastSyncedAt: this.normalizeOptionalString(frontmatter.didaLastSyncedAt) || new Date().toISOString(),
             status: this.normalizeRecordStatus(frontmatter.didaNoteSyncStatus),
             remoteMissing: false,
-            error: undefined
+            error: undefined,
+            localFileStem: file.basename,
+            contentFormat
         };
     }
 
@@ -543,46 +861,31 @@ export class NoteSyncManager {
     }
 
     private async findLocalFilesByDidaId(didaId: string): Promise<LocalNoteMatch[]> {
+        const hits = await this.noteLocator.find(didaId);
         const matches: LocalNoteMatch[] = [];
-        for (const file of this.getNoteSyncMarkdownFiles()) {
-            const frontmatter = await this.getFileFrontmatter(file);
-            if (String(frontmatter.didaNoteId || "") !== didaId) continue;
+        for (const hit of hits) {
             matches.push({
-                file,
-                parsed: await this.readParsedFile(file)
+                file: hit.file,
+                parsed: await this.readParsedFile(hit.file)
             });
         }
         return matches;
     }
 
-    private getNoteSyncMarkdownFiles(): TFile[] {
-        const getMarkdownFiles = (this.app.vault as any)?.getMarkdownFiles;
-        if (typeof getMarkdownFiles !== "function") return [];
-        const files = getMarkdownFiles.call(this.app.vault);
-        if (!Array.isArray(files)) return [];
-
-        const root = normalizePath((this.plugin.settings.didaNoteSyncFolder || "").trim());
-        if (!root) {
-            return files.filter((file) => file instanceof TFile && !file.path.includes("/"));
+    private async resolveRecordFile(record: DidaNoteSyncRecord): Promise<TFile | null> {
+        if (record.path) {
+            const existing = this.app.vault.getAbstractFileByPath(normalizePath(record.path));
+            if (existing instanceof TFile) return existing;
         }
-
-        const prefix = `${root}/`;
-        return files.filter((file) => file instanceof TFile && file.path.startsWith(prefix));
-    }
-
-    private async getFileFrontmatter(file: TFile): Promise<Record<string, any>> {
-        const cache = (this.app.metadataCache as any)?.getFileCache?.(file);
-        if (cache?.frontmatter && typeof cache.frontmatter === "object") {
-            return cache.frontmatter as Record<string, any>;
-        }
-        return (await this.readParsedFile(file)).frontmatter;
+        const hits = await this.noteLocator.find(record.didaId);
+        return hits.length > 0 ? hits[0].file : null;
     }
 
     private async readParsedFile(file: TFile): Promise<ParsedNoteFile> {
         const read = typeof (this.app.vault as any).cachedRead === "function"
             ? (this.app.vault as any).cachedRead.bind(this.app.vault)
             : this.app.vault.read.bind(this.app.vault);
-        return this.parseNoteFile(await read(file));
+        return parseNoteFile(await read(file));
     }
 
     private async ensureNoteFile(path: string, note: DidaTask): Promise<TFile> {
@@ -602,34 +905,135 @@ export class NoteSyncManager {
         const existing = this.app.vault.getAbstractFileByPath(normalized);
         if (existing instanceof TFile) return existing;
         if (existing) throw new Error(this.plugin.t("noteSync.notePathOccupiedByFolder", { path: normalized }));
-        const body = this.getNoteBody(note);
-        return await this.app.vault.create(normalized, this.renderFile(note, body, this.hashMarkdownBody(body), "synced"));
+        const body = this.buildLocalMarkdownBody(note, this.getNoteBody(note));
+        const hash = this.hashMarkdownBody(body);
+        const created = await this.app.vault.create(normalized, this.renderFile(note, body, hash, "synced"));
+        this.invalidatePathCache();
+        this.noteLocator.invalidate();
+        return created;
     }
 
-    private async buildUniqueNotePath(note: DidaTask, didaId: string): Promise<string> {
+    private async buildNotePath(note: DidaTask, didaId: string, selfPath?: string): Promise<string> {
         const root = (this.plugin.settings.didaNoteSyncFolder || "DidaNotes").trim();
-        const fileName = `${this.slugify(note.title || "Untitled")}-${didaId.slice(-6)}.md`;
-        const basePath = normalizePath(root ? `${root}/${fileName}` : fileName);
-        if (this.isPathAvailable(basePath, didaId)) return basePath;
+        if (!this.isTitleToFilenameEnabled()) {
+            const fileName = `${this.slugify(note.title || "Untitled")}-${didaId.slice(-6)}.md`;
+            const basePath = normalizePath(root ? `${root}/${fileName}` : fileName);
+            if (this.isPathAvailable(basePath, didaId)) return basePath;
 
-        const stem = basePath.replace(/\.md$/i, "");
-        for (let i = 2; i < 1000; i++) {
-            const candidate = `${stem}-${i}.md`;
-            if (this.isPathAvailable(candidate, didaId)) return candidate;
+            const stem = basePath.replace(/\.md$/i, "");
+            for (let i = 2; i < 1000; i++) {
+                const candidate = `${stem}-${i}.md`;
+                if (this.isPathAvailable(candidate, didaId)) return candidate;
+            }
+            return `${stem}-${Date.now()}.md`;
         }
-        return `${stem}-${Date.now()}.md`;
+
+        const baseStem = this.getDesiredStem(note);
+        for (let i = 0; i < 1000; i++) {
+            const candidate = normalizePath(root
+                ? `${root}/${buildConflictStem(baseStem, i)}.md`
+                : `${buildConflictStem(baseStem, i)}.md`);
+            if (this.isPathAvailable(candidate, didaId, selfPath)) return candidate;
+        }
+        return normalizePath(root
+            ? `${root}/${buildConflictStem(baseStem, 1000)}-${Date.now()}.md`
+            : `${buildConflictStem(baseStem, 1000)}-${Date.now()}.md`);
     }
 
-    private isPathAvailable(path: string, didaId: string): boolean {
-        if (this.app.vault.getAbstractFileByPath(path)) return false;
-        return !(this.plugin.settings.didaNoteSyncRecords || []).some((record) => record.didaId !== didaId && record.path === path);
+    private isPathAvailable(path: string, didaId: string, selfPath?: string): boolean {
+        const comparable = this.normalizeComparablePath(path);
+        if (selfPath && comparable === this.normalizeComparablePath(selfPath)) return true;
+        if (this.getLowerPathSet().has(comparable)) return false;
+        return !(this.plugin.settings.didaNoteSyncRecords || []).some(
+            (record) => record.didaId !== didaId && this.normalizeComparablePath(record.path) === comparable
+        );
     }
 
-    private async writeSyncedFile(file: TFile, note: DidaTask, body: string, hash: string, status: "synced" | "conflict") {
-        await this.app.vault.modify(file, this.renderFile(note, body, hash, status));
+    private getLowerPathSet(): Set<string> {
+        if (this.lowerPathCache) return this.lowerPathCache;
+        const set = new Set<string>();
+        const getMarkdownFiles = (this.app.vault as any)?.getMarkdownFiles;
+        if (typeof getMarkdownFiles === "function") {
+            const files = getMarkdownFiles.call(this.app.vault);
+            if (Array.isArray(files)) {
+                files.forEach((file: any) => {
+                    if (file?.path) set.add(this.normalizeComparablePath(file.path));
+                });
+            }
+        }
+        this.lowerPathCache = set;
+        return set;
     }
 
-    private renderFile(note: DidaTask, body: string, hash: string, status: "synced" | "conflict") {
+    private invalidatePathCache() {
+        this.lowerPathCache = null;
+    }
+
+    private async renameToDesiredPath(file: TFile, note: DidaTask, didaId: string): Promise<{ file: TFile; renamed: boolean }> {
+        let current = file;
+        for (let attempt = 0; attempt < 5; attempt++) {
+            const desired = await this.buildNotePath(note, didaId, current.path);
+            if (this.normalizeComparablePath(desired) === this.normalizeComparablePath(current.path)) {
+                return { file: current, renamed: attempt > 0 };
+            }
+            try {
+                return { file: await this.renameNoteFile(current, desired), renamed: true };
+            } catch (_error) {
+                this.invalidatePathCache();
+                this.noteLocator.invalidate();
+            }
+        }
+        return { file: current, renamed: false };
+    }
+
+    private async renameNoteFile(file: TFile, newPath: string): Promise<TFile> {
+        const fileManager = (this.app as any).fileManager;
+        if (!fileManager || typeof fileManager.renameFile !== "function") {
+            throw new Error(this.plugin.t("noteSync.renameUnavailable"));
+        }
+        this.expectedRenamePaths.set(this.normalizeComparablePath(newPath), Date.now());
+        try {
+            await fileManager.renameFile(file, newPath);
+        } catch (error) {
+            this.expectedRenamePaths.delete(this.normalizeComparablePath(newPath));
+            throw error;
+        }
+        this.invalidatePathCache();
+        this.noteLocator.invalidate();
+        const renamed = this.app.vault.getAbstractFileByPath(newPath);
+        return renamed instanceof TFile ? renamed : file;
+    }
+
+    private pruneExpectedRenames() {
+        const now = Date.now();
+        for (const [key, at] of this.expectedRenamePaths) {
+            if (now - at > EXPECTED_RENAME_TTL_MS) this.expectedRenamePaths.delete(key);
+        }
+    }
+
+    private stemOfPath(path: string): string {
+        const normalized = String(path || "").replace(/\\/g, "/");
+        const name = normalized.split("/").pop() || "";
+        return name.replace(/\.md$/i, "");
+    }
+
+    private normalizeComparablePath(path: string): string {
+        const normalized = normalizePath(String(path || "").replace(/\\/g, "/"));
+        return normalized.toLowerCase();
+    }
+
+    private async writeSyncedFile(
+        file: TFile,
+        note: DidaTask,
+        body: string,
+        hash: string,
+        status: "synced" | "conflict",
+        parsed?: ParsedNoteFile
+    ) {
+        await this.app.vault.modify(file, this.renderFile(note, body, hash, status, parsed?.frontmatterLines || []));
+    }
+
+    private renderFile(note: DidaTask, body: string, hash: string, status: "synced" | "conflict", preservedLines: string[] = []) {
         const didaId = note.didaId || note.id;
         const frontmatter = {
             didaNoteId: didaId,
@@ -640,79 +1044,7 @@ export class NoteSyncManager {
             didaLastSyncedContentHash: hash,
             didaLastSyncedAt: new Date().toISOString()
         };
-        return this.stringifyMarkdown(frontmatter, body);
-    }
-
-    private stringifyMarkdown(frontmatter: Record<string, any>, body: string) {
-        const lines = ["---"];
-        Object.entries(frontmatter).forEach(([key, value]) => {
-            lines.push(`${key}: ${this.formatFrontmatterValue(value)}`);
-        });
-        lines.push("---");
-        const normalizedBody = body.replace(/\r\n/g, "\n").replace(/^\n+/, "").trimEnd();
-        if (!normalizedBody) {
-            return `${lines.join("\n")}\n`;
-        }
-        lines.push(normalizedBody, "");
-        return lines.join("\n");
-    }
-
-    private formatFrontmatterValue(value: unknown): string {
-        if (value === null || value === undefined) return "null";
-        if (typeof value === "number" && Number.isFinite(value)) return String(value);
-        if (typeof value === "boolean") return value ? "true" : "false";
-        const normalized = String(value).replace(/\r\n/g, "\n");
-        return `'${normalized.replace(/'/g, "''")}'`;
-    }
-
-    private parseNoteFile(content: string): ParsedNoteFile {
-        const normalized = content.replace(/\r\n/g, "\n");
-        if (!normalized.startsWith("---\n")) return { frontmatter: {}, body: normalized };
-        const marker = "\n---\n";
-        const end = normalized.indexOf(marker, 4);
-        if (end === -1) return { frontmatter: {}, body: normalized };
-        const rawFrontmatter = normalized.slice(4, end).split("\n");
-        const frontmatter: Record<string, any> = {};
-        rawFrontmatter.forEach((line) => {
-            const idx = line.indexOf(":");
-            if (idx === -1) return;
-            const key = line.slice(0, idx).trim();
-            const raw = line.slice(idx + 1).trim();
-            frontmatter[key] = this.parseFrontmatterValue(raw);
-        });
-        return {
-            frontmatter,
-            body: normalized.slice(end + marker.length).replace(/^\n/, "")
-        };
-    }
-
-    private parseFrontmatterValue(raw: string): any {
-        if (!raw) return "";
-
-        if (
-            raw.startsWith("\"") ||
-            raw.startsWith("{") ||
-            raw.startsWith("[") ||
-            raw === "null" ||
-            raw === "true" ||
-            raw === "false" ||
-            /^-?\d+(\.\d+)?$/.test(raw)
-        ) {
-            try {
-                return JSON.parse(raw);
-            } catch (_error) {
-            }
-        }
-
-        if (raw.startsWith("'") && raw.endsWith("'")) {
-            return raw.slice(1, -1).replace(/''/g, "'");
-        }
-
-        if (raw === "null") return null;
-        if (raw === "true") return true;
-        if (raw === "false") return false;
-        if (/^-?\d+(\.\d+)?$/.test(raw)) return Number(raw);
-        return raw;
+        return renderNoteDocument(frontmatter, body, preservedLines);
     }
 
     private findRecord(didaId: string): DidaNoteSyncRecord | undefined {
@@ -741,7 +1073,14 @@ export class NoteSyncManager {
         return missing;
     }
 
-    private upsertRecord(note: DidaTask, path: string, hash: string, status: "synced" | "conflict" | "error", error?: string) {
+    private upsertRecord(
+        note: DidaTask,
+        path: string,
+        hash: string,
+        status: "synced" | "conflict" | "error",
+        error?: string,
+        extra?: RecordExtraFields
+    ) {
         const didaId = note.didaId || note.id;
         if (!didaId) return;
         const noteWithProject = this.withSelectedNoteProjectFallback(note);
@@ -754,7 +1093,7 @@ export class NoteSyncManager {
             : { id: noteWithProject.projectId, name: noteWithProject.projectName || noteWithProject.projectId };
         const next: DidaNoteSyncRecord = {
             didaId,
-            title: noteWithProject.title || "Untitled",
+            title: String(noteWithProject.title || ""),
             path,
             projectId: projectInfo.id || noteWithProject.projectId,
             projectName: projectInfo.name || noteWithProject.projectName || noteWithProject.projectId,
@@ -764,7 +1103,9 @@ export class NoteSyncManager {
             lastSyncedAt: new Date().toISOString(),
             status,
             remoteMissing: false,
-            error
+            error,
+            localFileStem: extra?.localFileStem || this.stemOfPath(path),
+            contentFormat: extra?.contentFormat || (this.isTitleToFilenameEnabled() ? "plain" : "heading")
         };
         const index = records.findIndex((record) => record.didaId === didaId);
         if (index === -1) records.push(next);

@@ -24,7 +24,9 @@ Run **Sync tasks to note** and choose a day, week, month, year, or custom range.
 
 ## Sync Dida notes
 
-Enable **Dida note sync**, select projects, and choose a destination folder. Run **Sync Dida notes to Obsidian**. Each remote NOTE is stored as a Markdown file that can be edited locally and synchronized again.
+Enable **Dida note sync**, select projects, and choose a destination folder. Run **Sync Dida notes to Obsidian**. Each remote NOTE is stored as a Markdown file that can be edited locally and synchronized again. Only NOTE records from the selected projects are synchronized.
+
+To use the note title as the file name, enable **Sync note title to file name** in the same section. The file name no longer carries an id suffix, the body no longer repeats the title as a `##` heading, and renames are synchronized in both directions: changing the title in Dida renames the local file, and renaming the file in Obsidian updates the Dida title. The first sync after enabling the setting tidies up existing notes. See [`NOTE_SYNC_RENAME_EN.md`](NOTE_SYNC_RENAME_EN.md) for details.
 
 ## Calendar, time blocks, and Pomodoro
 

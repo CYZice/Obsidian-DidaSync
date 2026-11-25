@@ -35,6 +35,23 @@ const obsidianMock = {
 function makeApp() {
     const vaultData = new Map<string, string>();
     const abstractFiles = new Map<string, any>();
+    const eventHandlers = new Map<string, Array<(...args: any[]) => any>>();
+    const emit = async (name: string, ...args: any[]) => {
+        for (const handler of eventHandlers.get(name) || []) {
+            await handler(...args);
+        }
+    };
+    const moveFile = async (file: any, newPath: string, emitEvent: boolean) => {
+        const oldPath = file.path;
+        const content = vaultData.get(oldPath) ?? "";
+        abstractFiles.delete(oldPath);
+        vaultData.delete(oldPath);
+        file.path = newPath;
+        file.basename = newPath.replace(/\.md$/, "").split("/").pop() || newPath;
+        abstractFiles.set(newPath, file);
+        vaultData.set(newPath, content);
+        if (emitEvent) await emit("rename", file, oldPath);
+    };
     const app = {
         vault: {
             getAbstractFileByPath: (path: string) => abstractFiles.get(path) || null,
@@ -51,6 +68,17 @@ function makeApp() {
             modify: async (file: any, content: string) => {
                 file.stat.mtime = Math.max(Date.now(), file.stat.mtime + 1000);
                 vaultData.set(file.path, content);
+            },
+            on: (name: string, callback: (...args: any[]) => any) => {
+                const handlers = eventHandlers.get(name) || [];
+                handlers.push(callback);
+                eventHandlers.set(name, handlers);
+                return { name };
+            }
+        },
+        fileManager: {
+            renameFile: async (file: any, newPath: string) => {
+                await moveFile(file, newPath, true);
             }
         },
         metadataCache: {
@@ -58,11 +86,12 @@ function makeApp() {
         },
         workspace: { getLeaf: () => ({ openFile: async () => { } }) }
     };
-    return { app, vaultData, abstractFiles };
+    return { app, vaultData, abstractFiles, emit, moveFile };
 }
 
 function makePlugin(app: any) {
     let remoteBody = "remote body";
+    let remoteTitle = "Test Note";
     let remoteEtag = "e1";
     let remoteModifiedTime = new Date(Date.now() - 60_000).toISOString();
     let remoteItems: any[] | null = null;
@@ -78,6 +107,10 @@ function makePlugin(app: any) {
             didaNoteSyncProjectIds: ["p1"],
             didaNoteSyncRecords: [],
             didaNoteSyncLastRun: null,
+            didaNoteSyncTitleToFilename: false,
+            detachedSyncEntities: [],
+            syncDeletionCandidates: [],
+            nativeTaskLinkIndex: {},
             tasks: [],
             projectCatalog: [
                 { id: "p1", name: "Notes Project", isArchived: false, isLocalOnly: false, kind: "NOTE", viewMode: "note" }
@@ -88,7 +121,7 @@ function makePlugin(app: any) {
                 filters.push(filter);
                 return remoteItems ?? [{
                     id: "note-1",
-                    title: "Test Note",
+                    title: remoteTitle,
                     content: remoteBody,
                     desc: "",
                     kind: "NOTE",
@@ -102,6 +135,7 @@ function makePlugin(app: any) {
             updateNote: async (_id: string, payload: any) => {
                 updates.push(payload);
                 remoteBody = payload.content;
+                remoteTitle = payload.title;
                 remoteEtag = "e2";
                 remoteModifiedTime = new Date(Date.now()).toISOString();
                 return { etag: remoteEtag, modifiedTime: remoteModifiedTime };
@@ -145,6 +179,12 @@ function makePlugin(app: any) {
         filters,
         setRemote(body: string, etag: string) {
             remoteBody = body;
+            remoteEtag = etag;
+            remoteModifiedTime = new Date(Date.now() + 120_000).toISOString();
+            remoteItems = null;
+        },
+        setRemoteTitle(title: string, etag: string) {
+            remoteTitle = title;
             remoteEtag = etag;
             remoteModifiedTime = new Date(Date.now() + 120_000).toISOString();
             remoteItems = null;
@@ -381,6 +421,160 @@ async function run() {
     await tracker.detach(tracker.list()[0]);
     assert.equal(tracker.list().length, 0);
     assert.equal(trackerRuntime.plugin.settings.detachedSyncEntities.includes("task:remote-task"), true);
+
+    // ------------------------------------------------- title <-> file name sync
+    const enabledEnv = makeApp();
+    const enabledRuntime = makePlugin(enabledEnv.app);
+    enabledRuntime.plugin.settings.didaNoteSyncTitleToFilename = true;
+    const enabledManager = new NoteSyncManager(enabledEnv.app as any, enabledRuntime.plugin as any);
+    const renameOutcomes: boolean[] = [];
+    enabledEnv.app.vault.on("rename", async (renamed: any, previousPath: string) => {
+        renameOutcomes.push(await enabledManager.handleFileRename(renamed, previousPath));
+    });
+
+    const enabledFirstSummary = await enabledManager.syncNow({ silent: true });
+    assert.equal(enabledFirstSummary.synced, 1);
+    let enabledRecord = enabledRuntime.plugin.settings.didaNoteSyncRecords[0];
+    assert.equal(enabledRecord.path, "DidaNotes/Test Note.md");
+    assert.equal(enabledRecord.localFileStem, "Test Note");
+    assert.equal(enabledRecord.contentFormat, "plain");
+    assert.match(enabledEnv.vaultData.get(enabledRecord.path) || "", /didaNoteId: 'note-1'/);
+    assert.doesNotMatch(enabledEnv.vaultData.get(enabledRecord.path) || "", /## Test Note/);
+    assert.match(enabledEnv.vaultData.get(enabledRecord.path) || "", /\n---\nremote body\n?$/);
+    assert.equal(enabledRuntime.updates.length, 0);
+
+    enabledRuntime.setRemoteTitle("Renamed Note", "e2");
+    const remoteRenameSummary = await enabledManager.syncNow({ silent: true });
+    enabledRecord = enabledRuntime.plugin.settings.didaNoteSyncRecords[0];
+    assert.equal(enabledEnv.abstractFiles.has("DidaNotes/Test Note.md"), false);
+    assert.equal(enabledEnv.abstractFiles.has("DidaNotes/Renamed Note.md"), true);
+    assert.equal(enabledRecord.path, "DidaNotes/Renamed Note.md");
+    assert.equal(enabledRecord.localFileStem, "Renamed Note");
+    assert.equal(remoteRenameSummary.renamed, 1);
+    assert.equal(enabledRuntime.updates.length, 0, "a remote rename must not be pushed back");
+    assert.deepEqual(renameOutcomes, [false], "the plugin's own rename event must be ignored");
+
+    const stableEnabledSummary = await enabledManager.syncNow({ silent: true });
+    assert.equal(stableEnabledSummary.renamed, 0);
+    assert.equal(enabledRuntime.updates.length, 0);
+
+    // Obsidian-side rename is pushed as the remote title, exactly once.
+    const enabledFile = enabledEnv.app.vault.getAbstractFileByPath(enabledRecord.path);
+    const oldEnabledPath = enabledRecord.path;
+    await enabledEnv.moveFile(enabledFile, "DidaNotes/User Title.md", false);
+    assert.equal(await enabledManager.handleFileRename(enabledFile, oldEnabledPath), true);
+    await enabledManager.syncNow({ silent: true });
+    assert.equal(enabledRuntime.updates.length, 1);
+    assert.equal(enabledRuntime.updates.at(-1).title, "User Title");
+    assert.equal(enabledRuntime.updates.at(-1).content, "remote body");
+    enabledRecord = enabledRuntime.plugin.settings.didaNoteSyncRecords[0];
+    assert.equal(enabledRecord.title, "User Title");
+    assert.equal(enabledRecord.path, "DidaNotes/User Title.md");
+    assert.equal(enabledRecord.localFileStem, "User Title");
+    const afterPushSummary = await enabledManager.syncNow({ silent: true });
+    assert.equal(enabledRuntime.updates.length, 1, "renaming must not loop");
+    assert.equal(afterPushSummary.renamed, 0);
+
+    // Rename with a lost event (e.g. app closed) heals through didaNoteId.
+    const healedFile = enabledEnv.app.vault.getAbstractFileByPath(enabledRecord.path);
+    await enabledEnv.moveFile(healedFile, "DidaNotes/Healed Title.md", false);
+    await enabledManager.syncNow({ silent: true });
+    enabledRecord = enabledRuntime.plugin.settings.didaNoteSyncRecords[0];
+    assert.equal(enabledRecord.path, "DidaNotes/Healed Title.md");
+    assert.equal(enabledRecord.title, "Healed Title");
+    assert.equal(enabledRuntime.updates.length, 2);
+    assert.equal((enabledRuntime.plugin.settings.syncDeletionCandidates || []).length, 0);
+    assert.equal(enabledEnv.app.vault.getMarkdownFiles().length, 1, "a rename must not create a copy");
+    await enabledManager.syncNow({ silent: true });
+    assert.equal(enabledRuntime.updates.length, 2);
+
+    // Same-title notes get stable ` (1)` / ` (2)` conflict names.
+    const conflictEnv = makeApp();
+    const conflictRuntime = makePlugin(conflictEnv.app);
+    conflictRuntime.plugin.settings.didaNoteSyncTitleToFilename = true;
+    conflictRuntime.setRemoteItems([
+        { id: "same-a", title: "Same", content: "A body", kind: "NOTE", status: 0, etag: "a1", modifiedTime: "a1" },
+        { id: "same-b", title: "Same", content: "B body", kind: "NOTE", status: 0, etag: "b1", modifiedTime: "b1" }
+    ]);
+    const conflictManager = new NoteSyncManager(conflictEnv.app as any, conflictRuntime.plugin as any);
+    await conflictManager.syncNow({ silent: true });
+    assert.equal(conflictEnv.abstractFiles.has("DidaNotes/Same.md"), true);
+    assert.equal(conflictEnv.abstractFiles.has("DidaNotes/Same (1).md"), true);
+    await conflictManager.syncNow({ silent: true });
+    assert.equal(conflictEnv.abstractFiles.has("DidaNotes/Same.md"), true);
+    assert.equal(conflictEnv.abstractFiles.has("DidaNotes/Same (1).md"), true);
+    assert.equal(conflictRuntime.updates.length, 0);
+
+    // Blank remote titles fall back to 未命名 without repeated writes.
+    const untitledEnv = makeApp();
+    const untitledRuntime = makePlugin(untitledEnv.app);
+    untitledRuntime.plugin.settings.didaNoteSyncTitleToFilename = true;
+    untitledRuntime.setRemoteItems([
+        { id: "empty-1", title: "", content: "hello", kind: "NOTE", status: 0, etag: "u1", modifiedTime: "u1" }
+    ]);
+    const untitledManager = new NoteSyncManager(untitledEnv.app as any, untitledRuntime.plugin as any);
+    await untitledManager.syncNow({ silent: true });
+    assert.equal(untitledEnv.abstractFiles.has("DidaNotes/未命名.md"), true);
+    await untitledManager.syncNow({ silent: true });
+    assert.equal(untitledRuntime.updates.length, 0);
+
+    // Enabling the setting migrates existing legacy notes without pushing.
+    const migrateEnv = makeApp();
+    const migrateRuntime = makePlugin(migrateEnv.app);
+    const migrateManager = new NoteSyncManager(migrateEnv.app as any, migrateRuntime.plugin as any);
+    await migrateManager.syncNow({ silent: true });
+    let migrateRecord = migrateRuntime.plugin.settings.didaNoteSyncRecords[0];
+    assert.match(migrateRecord.path, /^DidaNotes\/Test Note-/);
+    assert.match(migrateEnv.vaultData.get(migrateRecord.path) || "", /## Test Note/);
+
+    migrateRuntime.plugin.settings.didaNoteSyncTitleToFilename = true;
+    const migrateSummary = await migrateManager.syncNow({ silent: true });
+    migrateRecord = migrateRuntime.plugin.settings.didaNoteSyncRecords[0];
+    assert.equal(migrateRecord.path, "DidaNotes/Test Note.md");
+    assert.equal(migrateRecord.contentFormat, "plain");
+    assert.equal(migrateRecord.localFileStem, "Test Note");
+    assert.equal(migrateRuntime.updates.length, 0, "cleaning a legacy note must not push content");
+    assert.equal(migrateSummary.renamed, 1);
+    assert.doesNotMatch(migrateEnv.vaultData.get(migrateRecord.path) || "", /## Test Note/);
+    assert.match(migrateEnv.vaultData.get(migrateRecord.path) || "", /remote body/);
+
+    // Legacy notes edited locally keep their edits when migrated.
+    const migrateEditEnv = makeApp();
+    const migrateEditRuntime = makePlugin(migrateEditEnv.app);
+    const migrateEditManager = new NoteSyncManager(migrateEditEnv.app as any, migrateEditRuntime.plugin as any);
+    await migrateEditManager.syncNow({ silent: true });
+    const migrateEditRecord = migrateEditRuntime.plugin.settings.didaNoteSyncRecords[0];
+    const migrateEditFile = migrateEditEnv.app.vault.getAbstractFileByPath(migrateEditRecord.path);
+    await migrateEditEnv.app.vault.modify(
+        migrateEditFile,
+        (migrateEditEnv.vaultData.get(migrateEditRecord.path) || "").replace("remote body", "edited body")
+    );
+    migrateEditRuntime.plugin.settings.didaNoteSyncTitleToFilename = true;
+    await migrateEditManager.syncNow({ silent: true });
+    assert.equal(migrateEditRuntime.updates.length, 1);
+    assert.equal(migrateEditRuntime.updates.at(-1).title, "Test Note");
+    assert.equal(migrateEditRuntime.updates.at(-1).content, "edited body");
+    const migratedEdited = migrateEditRuntime.plugin.settings.didaNoteSyncRecords[0];
+    assert.equal(migratedEdited.path, "DidaNotes/Test Note.md");
+    assert.doesNotMatch(migrateEditEnv.vaultData.get(migratedEdited.path) || "", /## Test Note/);
+
+    // With the setting off, a rename still heals instead of looking deleted.
+    const disabledEnv = makeApp();
+    const disabledRuntime = makePlugin(disabledEnv.app);
+    const disabledManager = new NoteSyncManager(disabledEnv.app as any, disabledRuntime.plugin as any);
+    await disabledManager.syncNow({ silent: true });
+    let disabledRecord = disabledRuntime.plugin.settings.didaNoteSyncRecords[0];
+    const disabledFile = disabledEnv.app.vault.getAbstractFileByPath(disabledRecord.path);
+    const oldDisabledPath = disabledRecord.path;
+    await disabledEnv.moveFile(disabledFile, "DidaNotes/Manual Rename.md", false);
+    assert.equal(await disabledManager.handleFileRename(disabledFile, oldDisabledPath), false);
+    assert.equal(disabledRuntime.plugin.settings.didaNoteSyncRecords[0].path, "DidaNotes/Manual Rename.md");
+    await disabledManager.syncNow({ silent: true });
+    disabledRecord = disabledRuntime.plugin.settings.didaNoteSyncRecords[0];
+    assert.equal(disabledRecord.path, "DidaNotes/Manual Rename.md");
+    assert.equal(disabledRuntime.updates.length, 0);
+    assert.equal((disabledRuntime.plugin.settings.syncDeletionCandidates || []).length, 0);
+    assert.equal(disabledEnv.app.vault.getMarkdownFiles().length, 1);
 
     console.log("NoteSyncManager tests passed");
 }

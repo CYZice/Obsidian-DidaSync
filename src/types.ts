@@ -74,6 +74,18 @@ export interface DidaNoteSyncRecord {
     status: DidaNoteSyncStatus;
     remoteMissing?: boolean;
     error?: string;
+    /**
+     * File-name stem this record was synced with (including any ` (n)`
+     * conflict suffix). A user rename is detected by comparing this with the
+     * current file basename. Missing on records created by 1.9.1 and older.
+     */
+    localFileStem?: string;
+    /**
+     * Layout of the last synced local body. `"heading"` is the legacy format
+     * that repeated the title as `## 标题`; `"plain"` is the title-to-filename
+     * format. Missing on records created by 1.9.1 and older.
+     */
+    contentFormat?: "heading" | "plain";
 }
 
 export interface DidaNoteSyncSummary {
@@ -86,6 +98,8 @@ export interface DidaNoteSyncSummary {
     missing: number;
     errors: string[];
     summaryText: string;
+    /** Files renamed in place during the run (remote title changes, migration). */
+    renamed?: number;
 }
 
 export interface DidaNoteSyncRunState extends DidaNoteSyncSummary {
@@ -366,6 +380,11 @@ export interface DidaSyncSettings {
     didaNoteSyncProjectIds: string[];
     didaNoteSyncRecords: DidaNoteSyncRecord[];
     didaNoteSyncLastRun: DidaNoteSyncRunState | null;
+    /**
+     * When enabled, Dida note titles become Obsidian file names (no id suffix,
+     * no `## 标题` line in the body) and renames on either side propagate.
+     */
+    didaNoteSyncTitleToFilename: boolean;
 
     // UI Settings
     projectCollapsedStates: { [key: string]: boolean };
@@ -456,6 +475,7 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     didaNoteSyncProjectIds: [],
     didaNoteSyncRecords: [],
     didaNoteSyncLastRun: null,
+    didaNoteSyncTitleToFilename: false,
     projectCollapsedStates: {},
     childTaskCollapsedStates: {},
     projectOrder: [],
