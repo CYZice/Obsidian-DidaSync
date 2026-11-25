@@ -34,6 +34,7 @@ import { TASK_VIEW_TYPE, TaskView } from './views/TaskView';
 
 const AUTO_SYNC_EDIT_PAUSE_MAX_MS = 36e4;
 const AUTO_SYNC_EDIT_RECHECK_MS = 6e4;
+const NOTE_RENAME_SYNC_DELAY_MS = 1500;
 
 type TaskPlacementSnapshot = {
     parentId: string | null | undefined;
@@ -95,6 +96,7 @@ export default class DidaSyncPlugin extends Plugin {
     _lastRecoverySyncAt: number = 0;
     _autoSyncDeferredSince: number | null = null;
     _nativeTaskSyncTimeouts: Map<string, number> | null = null;
+    _noteRenameSyncTimeout: number | null = null;
     _isUpdatingNativeTaskStatus: boolean = false;
     _taskStatusChangeTimeout: number | null = null;
     _lastErrorTime: number | null = null;
@@ -271,6 +273,10 @@ export default class DidaSyncPlugin extends Plugin {
             }
         } catch (e) { }
         this._cachedTaskLeaf = null;
+        if (this._noteRenameSyncTimeout) {
+            window.clearTimeout(this._noteRenameSyncTimeout);
+            this._noteRenameSyncTimeout = null;
+        }
         if (this._taskStatusChangeTimeout) {
             clearTimeout(this._taskStatusChangeTimeout);
             this._taskStatusChangeTimeout = null;
@@ -1552,6 +1558,25 @@ export default class DidaSyncPlugin extends Plugin {
         }
     }
 
+    /**
+     * Coalesce Obsidian-side note renames into one note-only sync so the new
+     * file name is pushed as the remote note title.
+     */
+    scheduleNoteSyncAfterRename() {
+        if (!this.settings.enableDidaNoteSync || !this.settings.accessToken) return;
+        if ((this.settings.didaNoteSyncProjectIds || []).filter(Boolean).length === 0) return;
+        if (this._noteRenameSyncTimeout) {
+            window.clearTimeout(this._noteRenameSyncTimeout);
+            this._noteRenameSyncTimeout = null;
+        }
+        this._noteRenameSyncTimeout = window.setTimeout(() => {
+            this._noteRenameSyncTimeout = null;
+            if (!this.settings.enableDidaNoteSync || !this.settings.accessToken) return;
+            if (this.unifiedSyncEngine?.isRunning) return;
+            void this.unifiedSyncEngine.run({ source: "auto", scope: "notes", silent: true }).catch(() => { });
+        }, NOTE_RENAME_SYNC_DELAY_MS);
+    }
+
     showTaskNoteSyncModal(sourceFile?: TFile | null) {
         new TaskNoteSyncModal(this.app, this, sourceFile || null).open();
     }
@@ -2119,6 +2144,14 @@ export default class DidaSyncPlugin extends Plugin {
                 }, 2000);
                 this._nativeTaskSyncTimeouts.set(path, timeoutId);
             }
+        }));
+
+        this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+            void this.noteSyncManager.handleFileRename(file, oldPath)
+                .then((shouldSync) => {
+                    if (shouldSync) this.scheduleNoteSyncAfterRename();
+                })
+                .catch(() => { });
         }));
 
         if (this.settings.accessToken) {
