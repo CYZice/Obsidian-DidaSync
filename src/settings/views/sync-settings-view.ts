@@ -131,6 +131,17 @@ export class SyncSettingsView extends AbstractSettingsView {
                 }));
 
         new Setting(containerEl)
+            .setName(this.t("settings.sync.noteTitleToFilename.name"))
+            .setDesc(this.t("settings.sync.noteTitleToFilename.desc"))
+            .addToggle((toggle) => toggle
+                .setValue(this.plugin.settings.didaNoteSyncTitleToFilename === true)
+                .onChange(async (value) => {
+                    this.plugin.settings.didaNoteSyncTitleToFilename = value;
+                    await this.plugin.saveSettings();
+                    this.plugin.refreshTaskView();
+                }));
+
+        new Setting(containerEl)
             .setName(this.t("settings.sync.projects.name"))
             .setDesc(this.t("settings.sync.projects.desc", { count: (this.plugin.settings.didaNoteSyncProjectIds || []).length }))
             .addButton((button) => button

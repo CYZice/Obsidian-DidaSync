@@ -20,6 +20,7 @@ export class LocalDeletionTracker {
         const existing = new Map(this.list().map(candidate => [candidate.id, candidate]));
         const previousLinkIndex = this.host.settings.nativeTaskLinkIndex || {};
         const currentLinkIndex: DidaSyncSettings["nativeTaskLinkIndex"] = {};
+        const notePathIndex = new Map<string, string>();
 
         for (const file of this.app.vault.getMarkdownFiles()) {
             const content = await this.app.vault.cachedRead(file);
@@ -36,6 +37,17 @@ export class LocalDeletionTracker {
                     lastSeenAt: new Date().toISOString()
                 };
             }
+
+            // Renamed synced notes keep their didaNoteId, so index every note
+            // file by id. This makes a rename look like an update, never a
+            // deletion, even if the rename event was missed (e.g. app closed).
+            const frontmatter = (this.app.metadataCache as any)?.getFileCache?.(file)?.frontmatter;
+            let noteId = typeof frontmatter?.didaNoteId === "string" ? frontmatter.didaNoteId.trim() : "";
+            if (!noteId) {
+                const idMatch = content.match(/^didaNoteId:\s*['"]?([^'"\r\n]+?)['"]?\s*$/m);
+                noteId = idMatch ? idMatch[1].trim() : "";
+            }
+            if (noteId) notePathIndex.set(noteId, file.path);
         }
 
         for (const [remoteId, previous] of Object.entries(previousLinkIndex)) {
@@ -56,11 +68,23 @@ export class LocalDeletionTracker {
             });
         }
 
+        let healedRecords = 0;
         for (const record of this.host.settings.didaNoteSyncRecords || []) {
             const key = `note:${record.didaId}`;
             if (detached.has(key)) continue;
             const file = record.path ? this.app.vault.getAbstractFileByPath(normalizePath(record.path)) : null;
             if (file instanceof TFile) continue;
+            const renamedPath = notePathIndex.get(record.didaId);
+            if (renamedPath) {
+                // A file with the same didaNoteId still exists: the file was
+                // renamed, not deleted. Heal the record so the sync loop can
+                // push the new file name as the remote title.
+                if (record.path !== renamedPath) {
+                    record.path = renamedPath;
+                    healedRecords++;
+                }
+                continue;
+            }
             detected.set(key, existing.get(key) || {
                 id: key,
                 entityKind: "note",
@@ -107,7 +131,8 @@ export class LocalDeletionTracker {
             if (!taskExists && !currentLinkIndex[remoteId]) delete nextLinkIndex[remoteId];
         });
         const next = [...detected.values()];
-        const changed = JSON.stringify(this.list()) !== JSON.stringify(next)
+        const changed = healedRecords > 0
+            || JSON.stringify(this.list()) !== JSON.stringify(next)
             || JSON.stringify(previousLinkIndex) !== JSON.stringify(nextLinkIndex);
         this.host.settings.syncDeletionCandidates = next;
         this.host.settings.nativeTaskLinkIndex = nextLinkIndex;
